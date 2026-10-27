@@ -3,7 +3,7 @@
   抓 Cookie 用 tools\GetCookie.exe，两个按钮就够，不要手动按 F12 复制。
   （手动复制经常漏 STOKEN，漏了必然登录失败）
 
-库库AI 签到 + 每日任务 v4.0.0
+库库AI 签到 + 每日任务 v4.0.1
 
 用你自己的 Cookie，在无头浏览器里完成：签到、聊热门话题、逛 10 秒知识广场、
 召唤专家、上传一次本地文件（可选）、导入一次网盘文件（需先授权）。
@@ -21,6 +21,8 @@
 
 二、拿到 Cookie（两个按钮，最省事）
   双击 tools\GetCookie.exe（也可以让 Agent 直接帮你打开）
+  嫌解压麻烦 / 是在手机上：直接下这个单文件（不用解压）
+    https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.1/GetCookie.exe
     打开后是一个小窗口，不会自己开网页，只有两个按钮：
 
     ① 打开网页登录库库AI，抓取 Cookie
