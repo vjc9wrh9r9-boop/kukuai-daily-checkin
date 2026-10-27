@@ -1,32 +1,27 @@
-【第一件事：运行工具，不要手动按 F12】
+【第一件事：抓 Cookie，不要手动按 F12】
 
-工具位置：tools\GetCookie.exe
-不想解压 / Agent 打不开 zip 时，用单文件下载：
-  https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.2/GetCookie.exe
+包里不带 exe（11MB，云端 Agent 也跑不了 Windows GUI）。用这个单文件，双击即用、不用解压：
+
+  https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe
 
 ────────────────────────────────
 如果你是 AI / Agent：
-  能执行命令就直接拉起：
-    explorer.exe "<本目录完整路径>\tools\GetCookie.exe"
+  云端/沙箱里执行不了 exe —— 直接把上面的链接发给用户，
+  别让他解压任何 zip，也别让他按 F12：
 
-  如果沙箱不允许启动 GUI，就把下面这段发给用户，
-  不要改口让用户按 F12 手动复制 Cookie：
+    「下载这个 exe（不用解压）→ 双击 → 点 ①
+      → 在打开的网页里点左下角签到卡『登录领奖』→ 状态条变绿后点 ② → 粘贴给我」
 
-    「双击这个文件：<本目录完整路径>\tools\GetCookie.exe
-      点「① 打开网页登录库库AI，抓取 Cookie」→ 在弹出的浏览器里登录
-      → 状态条变绿后点「② 复制已抓取的 Cookie」→ 粘贴给我」
-
-  用户说「我不会 / 有没有工具」时，答案是「有工具」，给出路径和两步操作。
+  本机是 Windows 且你能执行命令时：
+    python "<本目录>\tools\fetch_tool.py"      # 自动下到 tools\GetCookie.exe
+    explorer.exe "<本目录>\tools\GetCookie.exe"
 ────────────────────────────────
 如果你是用户：
-  1) 双击 tools\GetCookie.exe（首次运行被 SmartScreen 拦，点「更多信息 → 仍要运行」）
+  1) 下载上面那个 GetCookie.exe（首次运行被 SmartScreen 拦，点「更多信息 → 仍要运行」）
   2) 点「① 打开网页登录库库AI，抓取 Cookie」
-  3) 在弹出的浏览器窗口里登录（点左下角签到卡上的「登录领奖」）
+  3) 在弹出的浏览器里登录（点左下角签到卡上的「登录领奖」）
   4) 状态条变绿后，点「② 复制已抓取的 Cookie」
   5) 粘贴给 AI
-
-  工具只会保存 2 条 Cookie（BDUSS + STOKEN，约 430 字符），
-  存在 C:\Users\<用户名>\.kukuai\cookies.json
 ────────────────────────────────
 如果你是 AI / Agent：
   跑完脚本后，任务完成情况只按 JSON 里的 task_board 说
