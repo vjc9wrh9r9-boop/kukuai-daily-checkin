@@ -34,85 +34,96 @@ description: "库库AI（kuku.baidu.com / kukuai.cn，百度 AI 办公智能体�
 
 v4 会两个渠道都做、都上报、都核验，所以 `task_board` 里会同时出现网页端和 PC 客户端的行。
 
-> ## ⛔ 第一步：先让用户跑 Cookie 工具（不可跳过）
->
-> 抓 Cookie 只需要一个**单文件 exe**（11.3MB，双击即用、不装扩展、**不需要 GitHub 账号**）。
-> **技能包里不带这个 exe**：它是 Windows GUI，云端 Agent 下载了也执行不了，带在包里只会让 zip 变成 11MB、
-> 还会在机器上留多份旧副本互相冒充（真实踩过：`%TEMP%\pyi4` 那份旧的被当成「最新版」）。
->
-> ### 下载地址（公开 Release，点开就下，**不用登录、不用注册**）
->
-> | 源 | 地址 |
-> | --- | --- |
-> | GitHub 直链 | https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe |
-> | 国内镜像 1 | https://gh-proxy.com/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe |
-> | 国内镜像 2 | https://ghfast.top/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe |
-> | 国内镜像 3 | https://ghproxy.net/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe |
->
-> ### 情况 0：你在云端 / 沙箱（最常见）→ 先自己试下载，不行就把链接给用户
->
-> 1. **先自己试**（能下就下，省用户一步）：
->    ```bash
->    python "<Skill目录>/tools/fetch_tool.py" --out /tmp/GetCookie.exe
->    ```
->    这个脚本会自动在「GitHub 直链 → 三个国内镜像」之间换源，成功后告诉你用的是哪个源。
->    下到了就**把文件发给用户**（能发附件就发附件），并说一句「双击运行，点 ① 登录，点 ② 复制」。
-> 2. **下不动（网络被墙 / 沙箱禁网）**：直接把上面表格里的链接发给用户，**优先给镜像**，加一句：
->    > 「点开就下载，不用登录 GitHub。如果打不开，换第二个链接试试。」
->
-> ### 情况 A：本机是 Windows 且你能执行命令 → 下载后直接拉起
->
-> ```bash
-> python "<Skill目录>/tools/fetch_tool.py"      # 自动换源下到 tools/，已存在则跳过
-> explorer.exe "<Skill目录>/tools/GetCookie.exe"
-> ```
->
-> 拉起后告诉用户：
-> 「在弹出的窗口点 **① 打开网页登录库库AI** → 登录 → 状态条变绿 → 点 **② 复制已抓取的 Cookie** → 粘贴给我」
->
-> ### 情况 B：你启动不了 GUI（无桌面 / 命令被拒）→ 让用户自己双击
->
-> 仍然不要退回 F12。发这段（链接用上面的镜像）：
->
-> > 下载：https://gh-proxy.com/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe
-> > （点开就下，不用登录）双击运行 → 点「① 打开网页登录库库AI，抓取 Cookie」
-> > → 在弹出的浏览器里登录 → 状态条变绿后点「② 复制已抓取的 Cookie」→ 粘贴发给我
->
-> ### 情况 C：用户说「我不会 / 有没有工具」
->
-> 直接回答「有工具，就一个 exe，点这个链接就下载，不用登录」，给镜像链接与两个按钮的用法。**不要再讲 F12。**
->
-> ### 网络/权限问题的标准应答
->
-> | 用户说 | 你该怎么回 |
-> | --- | --- |
-> | 「GitHub 打不开」 | 换镜像 1/2/3；再不行让他在手机流量下打开 |
-> | 「要登录吗」 | **不用**，公开 Release，点开直接下载 |
-> | 「下载被拦截/报毒」 | SmartScreen 点「更多信息 → 仍要运行」；杀软拦了就临时允许 |
-> | 「公司网禁了」 | 让他在自己手机或家里电脑上下载，再把文件传到电脑 |
-> | 全都不行 | 最后才退到 F12 手动复制（见「方式 B」），并说明「手动复制容易漏 STOKEN」 |
->
-> ### ❌ 明确禁止
->
-> - 让用户按 F12 手动复制 `BDUSS` / `STOKEN`
-> - 索要账号密码、验证码
-> - 只回一句「请导出 Cookie 发我」就结束
->
-> 手动 F12 只在用户**明确拒绝用工具**、且工具确实无法运行时作为最后兜底（见「方式 B」）。
+## ⛔ 第一步：抓 Cookie（别一上来就让用户按 F12）
 
-> ### ✅ 「已复制 2 条」或「已复制 14 条」都正常，看登录域
->
-> 库库AI 有两个前端入口，**两套 cookie 互不相认**，但背后是同一个账号、同一份任务进度：
->
-> | 状态条 | 登录域 | 对应 cookie | 脚本走哪个入口 |
-> | --- | --- | --- | --- |
-> | 已复制 **2 条** | `kuku.baidu.com` | `BDUSS@.baidu.com` + `STOKEN@.kuku.baidu.com` | `https://kuku.baidu.com` |
-> | 已复制 **14 条** | `www.kukuai.cn` | `BDUSS@.kukuai.cn`、`STOKEN@.passport.kukuai.cn` 等 | `https://www.kukuai.cn` |
->
-> v4.0.2 起脚本会**先探测哪个域认这份 cookie**（`--dry-run` 的 `base_host` 字段可以看到），
-> 不用再纠结抓了几条。工具也会标注「登录域」。
->
-> 唯一要避免的是「工具说成功、但其实没登录」——现在必须接口 `errno=0` 才保存。
+抓 Cookie 只需要**一个单文件 exe**（11.3MB，双击即用，不装扩展、**不需要 GitHub 账号**）。
+技能包里不带它：云端 Agent 执行不了 Windows GUI，带在包里只会让 zip 变成 11MB、还在机器上留多份旧副本互相冒充。
+
+### 下载地址（公开 Release，点开就下，不用登录、不用注册）
+
+| 源 | 地址 |
+| --- | --- |
+| 国内镜像 1（优先） | https://gh-proxy.com/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe |
+| 国内镜像 2 | https://ghfast.top/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe |
+| 国内镜像 3 | https://ghproxy.net/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe |
+| GitHub 直链 | https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe |
+
+> 这是自制小工具（**不是百度官方**），源码就在 `tools/get_cookie.py`，可自行审阅；不装扩展、不上传任何数据。
+
+### 你的沙箱禁止下载 exe？这是常态，不是出错
+
+很多 Agent 运行时会拦 `.exe` 下载（库库AI 就是）。**这时「把链接发给用户」就是正确做法**，
+不要写成「我这边限制，只能你自己下」——听起来像故障。换成：
+
+> 「抓 Cookie 需要一个小工具，30 秒：点这个链接下载（不用登录），双击运行，
+> 点 ① 登录、点 ② 复制，把内容粘给我。以后每天自动跑就不用再弄了。」
+
+**如果平台支持把本地文件发给用户、且你手上已经有这个 exe，就直接发文件**（连下载都省了）；
+手上没有就按上面的链接走。
+
+> 实用建议：第一次弄完把 exe 留在微信/网盘里。以后换电脑、发给朋友，直接传文件，不用再找链接。
+
+### 情况 A：本机是 Windows 且你能执行命令
+
+```bash
+python "<Skill目录>/tools/fetch_tool.py"      # 自动换源下到 tools/，已存在则跳过
+explorer.exe "<Skill目录>/tools/GetCookie.exe"
+```
+
+拉起后告诉用户：
+「点 **① 打开网页登录库库AI** → 登录 → 状态条变绿 → 点 **② 复制已抓取的 Cookie** → 粘贴给我」
+
+### 情况 B：你启动不了 GUI（无桌面 / 命令被拒）
+
+发这段（链接用上面的镜像）：
+
+> 下载：https://gh-proxy.com/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe
+> （点开就下，不用登录）双击运行 → 点「① 打开网页登录库库AI，抓取 Cookie」
+> → 在弹出的浏览器里登录 → 状态条变绿后点「② 复制已抓取的 Cookie」→ 粘贴发给我
+
+### 情况 C：用户说「我不会 / 有没有工具」
+
+回答「有工具，就一个 exe，点链接就下载，不用登录」，给镜像链接与两个按钮的用法。**不要先讲 F12。**
+
+### 零下载方案（用户拒绝装任何东西 / 公司电脑禁下载时才用）
+
+先说清楚「手动复制容易漏 STOKEN，漏了就登录失败」，再给这 4 步：
+
+1. Chrome / Edge 打开 `https://kuku.baidu.com/app`，点左下角签到卡「登录领奖」登录
+2. `F12` → **Application（应用）** → **Cookies** → `https://kuku.baidu.com`
+3. 找 `STOKEN`，双击 Value 全选复制；再点 `https://.baidu.com` 找 `BDUSS`，同样复制
+4. 发过来，格式 `BDUSS=...; STOKEN=...`
+
+只在这两个域里找，别去 `.kukuai.cn`（那是另一个入口的会话，脚本会用错域）。
+
+### 网络/权限问题的标准应答
+
+| 用户说 | 你该怎么回 |
+| --- | --- |
+| 「GitHub 打不开」 | 换镜像 1/2/3；再不行用手机流量打开 |
+| 「要登录吗」 | **不用**，公开 Release，点开直接下载 |
+| 「被拦截 / 报毒」 | SmartScreen 点「更多信息 → 仍要运行」；杀软拦了就临时允许 |
+| 「公司网禁了」 | 手机或家里电脑下载后传过去 |
+| 「不想装东西」 | 走上面的零下载方案（F12 复制 2 条） |
+
+### ✅ 「已复制 2 条」或「已复制 14 条」都正常，看登录域
+
+库库AI 有两个前端入口，**两套 cookie 互不相认**，但背后是同一账号、同一份任务进度：
+
+| 状态条 | 登录域 | 对应 cookie | 脚本走哪个入口 |
+| --- | --- | --- | --- |
+| 已复制 **2 条** | `kuku.baidu.com` | `BDUSS@.baidu.com` + `STOKEN@.kuku.baidu.com` | `https://kuku.baidu.com` |
+| 已复制 **14 条** | `www.kukuai.cn` | `BDUSS@.kukuai.cn`、`STOKEN@.passport.kukuai.cn` 等 | `https://www.kukuai.cn` |
+
+v4.0.2 起脚本会**先探测哪个域认这份 cookie**（`--dry-run` 的 `base_host` 字段可查），不用纠结抓了几条。
+工具也会标注「登录域」。唯一要避免的是「工具说成功、其实没登录」——现在必须接口 `errno=0` 才保存。
+
+### ❌ 明确禁止
+
+- 让用户按 F12 手动复制（除非用户明确拒绝装工具，走零下载方案）
+- 索要账号密码、验证码
+- 只说一句「请导出 Cookie 发我」就结束
+- 说「你去 GitHub 登录一下 / 注册个账号」——公开 Release，根本不需要
 
 ## 当前活动（2026-10-21 ~ 2026-12-04）
 
