@@ -38,15 +38,20 @@ import urllib.request
 from pathlib import Path
 
 HOST = "127.0.0.1"
-# 登录入口。用 kuku.baidu.com 的 home 页而不是 www.kukuai.cn：
-# 实测 360 浏览器加载 kukuai.cn 会在 8 秒左右整个进程退出，导致调试端口断掉、
-# 抓不到 Cookie；这个地址在 360 / Chrome / Edge 上都稳定。
-# 带 invite_code 等参数是用户自己的邀请链接，可用 --url 覆盖。
-TARGET_URL = ("https://kuku.baidu.com/home?invite_code=XUU5A9AB&task_type=252"
+# 真正需要登录的是「工作台」，它用 passport.kukuai.cn 自己的一套会话，
+# cookie 落在 .kukuai.cn 域。kuku.baidu.com/home 只是下载落地页，
+# 在那页登录只会写 .baidu.com 的 cookie，签到脚本用不了（实测）。
+LOGIN_URL = "https://www.kukuai.cn/"
+# 用户的邀请链接：作为副标签打开，保留邀请记录，不作为登录页
+INVITE_URL = ("https://kuku.baidu.com/home?invite_code=XUU5A9AB&task_type=252"
               "&task_id_str=5259635171792479&task_from=kuku_signin_30_pc")
-DEFAULT_URL = TARGET_URL
-COOKIE_HOSTS = ["https://kuku.baidu.com/", "https://www.kukuai.cn/", "https://baidu.com/"]
+DEFAULT_URL = LOGIN_URL
+# 判定登录：BDUSS 必须落在 kukuai.cn 域（App 的会话）
+LOGIN_COOKIE_NAMES = ("BDUSS",)
+LOGIN_COOKIE_DOMAINS = ("kukuai.cn",)
 DEFAULT_OUT = "~/.kukuai/cookies.json"
+# 读 cookie 时按这些地址查询（跨域登录都要覆盖）
+COOKIE_HOSTS = ["https://www.kukuai.cn/", "https://kuku.baidu.com/", "https://baidu.com/"]
 
 APP_TITLE = "库库AI Cookie 抓取工具"
 APP_VERSION = "2.0"
@@ -357,7 +362,22 @@ def normalize(cookies):
 
 
 def has_login(cookies):
-    return "BDUSS" in {c.get("name") for c in cookies}
+    """登录判定：BDUSS 必须挂在 kukuai.cn 域上。
+
+    只判断「有没有 BDUSS」会误报：在 kuku.baidu.com 下载页登录也会给 BDUSS，
+    但那是 .baidu.com 的，工作台不认，签到脚本也用不了。
+    """
+    for c in cookies:
+        if c.get("name") in LOGIN_COOKIE_NAMES:
+            dom = (c.get("domain") or "").lstrip(".").lower()
+            if any(dom == d or dom.endswith("." + d) for d in LOGIN_COOKIE_DOMAINS):
+                return True
+    return False
+
+
+def has_baidu_login(cookies):
+    """宽松判定：任意域上有 BDUSS（只有 .baidu.com 时说明登录在错误的地方）。"""
+    return any(c.get("name") == "BDUSS" for c in cookies)
 
 
 def read_cookies(port):
@@ -396,6 +416,27 @@ def save_cookies(cookies, out_path):
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return data, payload
+
+
+def browser_ws(port):
+    """拿浏览器级别的调试地址，用来新建标签页。"""
+    return cdp_json(port, "/json/version").get("webSocketDebuggerUrl")
+
+
+def open_tab(port, url, background=False):
+    """在同一个浏览器里新开一个标签页。"""
+    ws = browser_ws(port)
+    if not ws:
+        return False
+    try:
+        cdp = CDP(ws)
+        try:
+            cdp.send("Target.createTarget", {"url": url, "background": background})
+        finally:
+            cdp.close()
+        return True
+    except Exception:
+        return False
 
 
 def launch(exe: Path, port: int, profile: Path, url=None):
@@ -602,8 +643,8 @@ class CookieApp:
         hint.pack(fill="x", pady=(8, 0))
         tk.Label(
             hint,
-            text="打开网页后怎么登录：点页面上的「在线使用库库AI」；\n"
-                 "找不到就点网页右上角的「网页版登录」，用百度账号扫码或密码登录。",
+            text="登录方法：点工作台左下角签到卡上的「登录领奖」（或右上角头像），\n"
+                 "用百度账号扫码或密码登录；登录成功后会自动抓取。",
             bg="#fff8e6", fg="#8a6d1f", font=(font, 9), anchor="w", justify="left",
             wraplength=525, padx=12, pady=8).pack(fill="x")
 
@@ -730,15 +771,23 @@ class CookieApp:
                          "浏览器调试端口没起来（可能被安全软件拦了）。关掉杀软后重试。")
                 return
 
+            # 邀请页放副标签：保留邀请记录，但登录必须在工作台做
+            if INVITE_URL and INVITE_URL != (self.url or ""):
+                if open_tab(self.port, INVITE_URL, background=True):
+                    self._ui(self.log, "已另开邀请页标签（可关闭，不影响抓取）")
+                else:
+                    self._ui(self.log, "邀请页标签没打开（不影响抓取）")
+
             self._ui(self.set_status,
-                     "浏览器已打开 —— 在网页里点「在线使用库库AI」或右上角「网页版登录」，登录成功后会自动抓取。", "work")
-            self._ui(self.log, "浏览器已就绪：点「在线使用库库AI」或右上角「网页版登录」")
+                     "浏览器已打开 —— 点左下角签到卡上的「登录领奖」登录，成功后自动抓取。", "work")
+            self._ui(self.log, "浏览器已就绪：点左下角签到卡「登录领奖」登录")
 
             # 轮询 cookie
             start = time.time()
             deadline = start + self.timeout
             lost = 0
             next_tick = 0
+            warned_baidu = False
             while time.time() < deadline:
                 if self.stop_flag:
                     return
@@ -750,6 +799,11 @@ class CookieApp:
                 else:
                     lost = 0
                 cookies = read_cookies(self.port)
+                if cookies and not has_login(cookies) and has_baidu_login(cookies) and not warned_baidu:
+                    warned_baidu = True
+                    self._ui(self.log, "检测到百度域 BDUSS，但工作台还没登录 —— 请点左下角「登录领奖」")
+                    self._ui(self.set_status,
+                             "还差一步：点左下角签到卡上的「登录领奖」，用百度账号登录。", "work")
                 if cookies and has_login(cookies):
                     # 刚登录的一瞬间可能只写好了 BDUSS，稍等一下再读，把 STOKEN 等一并带上
                     time.sleep(1.2)
@@ -768,7 +822,7 @@ class CookieApp:
                 if elapsed >= next_tick:
                     next_tick = elapsed + 3
                     self._ui(self.set_status,
-                             "已等待 %d 秒 —— 在浏览器里点「在线使用库库AI」或右上角「网页版登录」，登录成功后会自动抓取。" % elapsed, "work")
+                             "已等待 %d 秒 —— 点左下角签到卡上的「登录领奖」完成登录即可。" % elapsed, "work")
                 time.sleep(1.5)
 
             self._ui(self._fail, "等了 %d 分钟还没检测到登录。重新点第 ① 个按钮，登录后别急着关窗口。"
