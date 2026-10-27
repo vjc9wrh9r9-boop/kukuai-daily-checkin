@@ -58,7 +58,7 @@ COOKIE_HOSTS = ["https://kuku.baidu.com/", "https://baidu.com/", "https://passpo
 REQUIRED_COOKIES = [("BDUSS", "baidu.com"), ("STOKEN", "kuku.baidu.com")]
 
 APP_TITLE = "库库AI Cookie 抓取工具"
-APP_VERSION = "3.8.0"
+APP_VERSION = "3.8.1"
 
 # 默认浏览器拿不到时按顺序退化的候选
 FALLBACK_BROWSERS = [
@@ -403,11 +403,15 @@ USERREPORT_API = ("https://kuku.baidu.com/api/genflowpro/common/userreport"
                    "?clienttype=400&app_id=123971023&web=1&channel=chunlei&version=1.6.32")
 
 
-def app_login_state(port):
+LOGIN_ORIGINS = ["https://kuku.baidu.com", "https://www.kukuai.cn"]
+
+
+def app_login_state(port, origin=None):
     """问工作台自己：这个会话到底登没登录。
 
     返回 True（已登录）/ False（接口说是未登录）/ None（判断不了）。
     只看 cookie 里有没有 BDUSS 会误报——服务端可能不认，这里以接口为准。
+    origin 不传就按当前标签页所在域推断（两个域的会话互不相认）。
     """
     try:
         targets = cdp_json(port, "/json/list")
@@ -422,8 +426,13 @@ def app_login_state(port):
             break
     if not page:
         return None
+    if origin is None:
+        cur = page.get("url") or ""
+        origin = "https://www.kukuai.cn" if "kukuai.cn" in cur else "https://kuku.baidu.com"
+    api = (origin.rstrip("/") + "/api/genflowpro/common/userreport"
+           "?clienttype=400&app_id=123971023&web=1&channel=chunlei&version=1.6.32")
     expr = ("fetch(%r, {credentials: 'include'})"
-            ".then(r => r.text()).catch(e => 'FETCH_ERROR')" % USERREPORT_API)
+            ".then(r => r.text()).catch(e => 'FETCH_ERROR')" % api)
     try:
         cdp = CDP(page["webSocketDebuggerUrl"])
         try:
@@ -442,6 +451,58 @@ def app_login_state(port):
     if not m:
         return None
     return m.group(1) == "0"
+
+
+def cdp_page(port):
+    try:
+        targets = cdp_json(port, "/json/list")
+    except Exception:
+        return None
+    for t in targets:
+        if t.get("type") == "page" and t.get("webSocketDebuggerUrl") \
+                and ("kuku.baidu.com" in (t.get("url") or "") or "kukuai.cn" in (t.get("url") or "")):
+            return t
+    for t in targets:
+        if t.get("type") == "page" and t.get("webSocketDebuggerUrl"):
+            return t
+    return None
+
+
+def navigate(port, url):
+    page = cdp_page(port)
+    if not page:
+        return False
+    try:
+        cdp = CDP(page["webSocketDebuggerUrl"])
+        try:
+            cdp.send("Page.navigate", {"url": url})
+        finally:
+            cdp.close()
+        return True
+    except Exception:
+        return False
+
+
+def check_login_any(port):
+    """两个入口都问一遍：返回 (state, origin)。
+
+    先查当前标签页所在域；不认就导航到另一个域再查（登录已经完成时才会走到这里）。
+    """
+    page = cdp_page(port)
+    cur = (page or {}).get("url") or ""
+    order = list(LOGIN_ORIGINS)
+    if "kukuai.cn" in cur:
+        order.reverse()
+    last = None
+    for origin in order:
+        if origin not in cur:
+            navigate(port, origin + "/app")
+            time.sleep(3.5)
+        state = app_login_state(port, origin)
+        last = state
+        if state is True:
+            return True, origin
+    return (last if last is not None else False), order[-1]
 
 
 def read_cookies(port):
@@ -486,8 +547,11 @@ def pick_needed(cookies):
     return picked, True
 
 
-def save_cookies(cookies, out_path):
-    data, minimal = pick_needed(cookies)
+def save_cookies(cookies, out_path, keep_all=False):
+    if keep_all:
+        data, minimal = normalize(cookies), False
+    else:
+        data, minimal = pick_needed(cookies)
     if not data:
         return None, None, False
     path = Path(os.path.expanduser(str(out_path)))
@@ -876,16 +940,23 @@ class CookieApp:
                 # 只认工作台接口：True 才保存；False / None（接口没响应）都当没完成，继续等
                 if cookies and time.time() >= next_verify:
                     next_verify = time.time() + 3
-                    state = app_login_state(self.port)
+                    state, origin = check_login_any(self.port)
                     if state is True:
                         again = read_cookies(self.port) or cookies
                         data, payload, minimal = save_cookies(again, self.out_path)
+                        if "kukuai.cn" in origin:
+                            # 这套登录只对 www.kukuai.cn 生效，脚本会自动用它
+                            data, payload, minimal = save_cookies(again, self.out_path, keep_all=True)
                         if not data:
                             self._ui(self._fail, "读到了 Cookie 但没有 BDUSS，可能还没登录完成，重试一次。")
                             return
                         self.payload = payload
                         self.cookie_count = len(data)
-                        note = "" if minimal else "（必需项不全，已保留全部 %d 条）" % len(data)
+                        domain_label = "kuku.baidu.com" if "kuku.baidu.com" in origin else "www.kukuai.cn"
+                        if minimal:
+                            note = "（登录域 %s）" % domain_label
+                        else:
+                            note = "（登录域 %s，保留全部 %d 条；脚本会自动用这个域）" % (domain_label, len(data))
                         self._ui(self._success, len(data), note)
                         return
                     if state is False:
