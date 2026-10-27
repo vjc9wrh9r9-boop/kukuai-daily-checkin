@@ -1,11 +1,11 @@
 # 云端签到 · Cookie 与脚本用法
 
-本文件是 SKILL `kukuai-daily-checkin` 的配套参考：导出 Cookie → 跑脚本 → 注册每日定时任务。全程云端执行，**不需要本机浏览器**。
+本文件是 SKILL `kukuai-checkin-tasks` 的配套参考：导出 Cookie → 跑脚本 → 配每日自动。脚本用无头浏览器执行，**不需要本机浏览器弹窗**。
 
 ## 1. 适用场景
 
 - 「帮我签到 / 领每日积分」——手动触发一次。
-- 「每天定时自动签到」——注册每日定时任务。
+- 「每天定时自动签到」——在 Agent 里建定时任务，或用 GitHub Actions。
 - 云端执行，不依赖本机客户端在线，电脑关机也能签到。
 
 ## 2. 导出登录 Cookie
@@ -88,13 +88,29 @@ python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --headful --dr
 | `log/kukuai_checkin_*.log` | 逐步日志 |
 | `~/.kukuai/state.json` | 上次成功签到日期、连签天数、历史，用于断签预警 |
 
-## 6. 注册每日定时任务
+## 6. 每日自动：两种方式，别搞混
+
+### 6.1 Agent 自带的定时任务 / 自动化任务（本机）
+
+指 **Agent 界面里的「定时任务 / 自动化任务」**，由 Agent 客户端触发。
+**不是 Windows 计划任务（taskschd.msc），不是 crontab，也不是开机启动项** —— 那些脚本管不了结果汇报，也不该用。
 
 用「创建定时 / 自动化任务」建**每天固定时间**的周期任务，描述示例：
 
 > 执行库库AI 每日签到：运行本 Skill 的 `scripts/kukuai_checkin.py`（Cookie 路径 `~/.kukuai/cookies.json`），完成后把 `kukuai-summary-*.md` 的内容推给我；若报登录态失效，提醒我重新导出 Cookie；若 warnings 里有断签或活动临期提示，单独提醒。
 
 时间建议 09:00 前后，便于 Cookie 失效当天就能处理。
+
+| 方式 | 触发者 | 结果推给用户 | 电脑关机 |
+| --- | --- | --- | --- |
+| Agent 定时任务 / 自动化任务 | Agent 客户端 | ✅ | ❌ 不跑 |
+| Windows 计划任务 / crontab | 操作系统 | ❌ 只留日志 | ❌ 不跑 |
+| GitHub Actions | GitHub 云端 | ✅ issue / Summary | ✅ 照跑 |
+
+### 6.2 GitHub Actions（纯云端，不开电脑也能跑）
+
+见 <https://github.com/vjc9wrh9r9-boop/kukuai-signin-template>（只签到版模板），
+或把公开仓库的脚本放进自己的私有仓库，用 `KUKUAI_COOKIES` secret 注入 Cookie。
 
 ## 7. 安全与合规
 
