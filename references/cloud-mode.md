@@ -75,6 +75,7 @@ python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --headful --dr
 | `--no-signin` | 关 | 只清任务不签到 |
 | `--no-tasks` / `--only-signin` | 关 | 只签到不清任务 |
 | `--tasks` | 空（全部） | 逗号分隔任务 key：`topic_chat,expert_chat,browse_square` |
+| `--with-expert` | 关 | 自动做「召唤任意专家」；会代勾《库库 AI 用户协议》，默认不做 |
 | `--timeout` | 30 | 单步超时秒数 |
 
 ## 5. 输出
