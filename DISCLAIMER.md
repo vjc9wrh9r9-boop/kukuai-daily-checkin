@@ -93,12 +93,21 @@
 
 ## 七、许可与再分发
 
-本项目以开源方式提供，供学习、研究及个人使用。
+本项目**源码公开**，但**保留所有权利**（All Rights Reserved）。授权范围仅限：
 
-- 再分发时**必须保留本免责声明全文**，不得删除或修改
-- 不得移除或篡改本声明后以「官方工具」「授权版本」等名义发布
+| 允许 | 需授权 | 禁止 |
+| --- | --- | --- |
+| 个人学习、研究、自用 | 商用 | 未经许可的商用销售 |
+| 无偿分享原包（含本声明） | 二次开发后分发 | 包装成代签服务收费 |
+| 阅读、修改源码供自己使用 | 企业内部使用 | 去除声明后重新发布 |
+
+- 再分发时**必须保留本免责声明全文**，不得删除、截断或修改
+- 不得移除或篡改本声明后以「官方工具」「授权版本」「内部版」等名义发布
 - 不得将本工具用于本声明第二条列出的禁止行为
 - 二次修改产生的风险与责任，由修改者自行承担
+- 被授权方违反上述任一条款，授权自动终止
+
+（本段与根目录 `LICENSE` 文件一致；两者冲突时以 `LICENSE` 为准。）
 
 ---
 
@@ -128,7 +137,7 @@ This is an **unofficial, third-party tool** developed independently by an indivi
 - **Data**: cookies are stored locally only (`~/.kukuai/cookies.json`) and are never transmitted to the developer. No telemetry, no analytics.
 - **No warranty**: provided "AS IS", without warranty of any kind, express or implied
 - **Liability**: the developer assumes no liability for account penalties, missing rewards, data loss, or any direct/indirect damages arising from use of this tool
-- **License**: open source for learning and personal use; this disclaimer must be retained in any redistribution
+- **License**: source-available, **All Rights Reserved**. Personal, non-commercial use only. Commercial use, resale, or redistribution as a paid service requires prior written permission. This disclaimer must be retained in any redistribution; violation terminates the granted permission automatically.
 
 If you do not accept these terms, **stop using and delete this tool immediately**.
 
