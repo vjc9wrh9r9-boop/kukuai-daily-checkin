@@ -1,5 +1,21 @@
 # 版本变更记录
 
+## v3.5.0 — 2026-10-27（登录页改到活动所在域 kuku.baidu.com/app）
+
+第三组样本（含 `passport.kukuai.cn` 的 PTOKEN/SAVEUSERID/STOKEN）终于登进工作台了：
+`www.kukuai.cn` 的 `userreport` 返回 `errno:0`，积分能读到 2000。**但签到卡还是「登录领奖」**。
+
+继续查发现：
+
+| 事实 | 结论 |
+| --- | --- |
+| `www.kukuai.cn` 接口 errno=0，`kuku.baidu.com` 接口 errno=-6 | 两个入口是**两套独立会话** |
+| 签到活动 iframe 在 `kuku.baidu.com/operation/activitys/kukuPcSignAct/main` | 签到只认 `kuku.baidu.com` 的登录态 |
+| 把 BDUSS 复制到 `.kuku.baidu.com` | 活动页跳 `wappass.baidu.com` 登录并 `ERR_TOO_MANY_REDIRECTS`，整页报错 |
+
+所以：**登录页改成 `https://kuku.baidu.com/app`**，服务端复核也换成该域的 `userreport`；
+并明确警告不要把 BDUSS 往 `.kuku.baidu.com` 复制。
+
 ## v3.4.0 — 2026-10-27（加服务端复核：接口说未登录就不算成功）
 
 第二组真实样本暴露的问题：BDUSS 明明在 `.kukuai.cn` 域、在百度首页也能认出账号（`176****54`），
