@@ -1,5 +1,25 @@
 # 版本变更记录
 
+## v4.0.3 — 2026-10-28（技能包瘦身：不再内置 exe）
+
+**问题**：包里的 `tools/GetCookie.exe` 有 11MB，导致 zip 传到聊天里费劲；更要命的是它到处留副本——
+本机 `%TEMP%\pyi4\dist\` 就躺着一份旧的，被别的 Agent 捡去当了「最新版」。
+
+**判断**：这个 exe 是 Windows GUI，云端 Agent 下载了也执行不了。它只对「用户自己的电脑」有意义，
+放进包里没有收益，只有体积和版本漂移的风险。
+
+**改动**：
+
+| 位置 | 改动 |
+| --- | --- |
+| zip | 去掉 `tools/GetCookie.exe`，`kukuai-checkin-tasks` 从 11.15MB → 约 0.2MB |
+| 新增 | `tools/fetch_tool.py`：按需从 Release 下载对应版本 exe 到 `tools/`，已存在则跳过；非 Windows 只打印链接 |
+| SKILL.md | 「情况 0：云端 → 只发单文件链接」「情况 A：本机 → 先 fetch 再 explorer」 |
+| 只签到包 | 同样去掉 exe，版本 1.9.1 |
+| Release | `GetCookie.exe` 作为独立资产，唯一来源，版本固定 |
+
+**教训**：二进制不进技能包，走 Release 单文件 + 按需下载，避免「多份旧副本互相冒充」。
+
 ## v4.0.2 — 2026-10-28（双入口自动选域）
 
 **修正上一版的判断**：`kuku.baidu.com` 和 `www.kukuai.cn` 是同一账号的两个入口，
