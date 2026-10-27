@@ -42,17 +42,20 @@ HOST = "127.0.0.1"
 # cookie 落在 .kukuai.cn 域。kuku.baidu.com/home 只是下载落地页，
 # 在那页登录只会写 .baidu.com 的 cookie，签到脚本用不了（实测）。
 LOGIN_URL = "https://kuku.baidu.com/app"
-# 用户的邀请链接：作为副标签打开，保留邀请记录，不作为登录页
-INVITE_URL = ("https://kuku.baidu.com/home?invite_code=XUU5A9AB&task_type=252"
-              "&task_id_str=5259635171792479&task_from=kuku_signin_30_pc")
 DEFAULT_URL = LOGIN_URL
 # 判定登录：以活动页所在域（kuku.baidu.com）的接口为准
 LOGIN_COOKIE_NAMES = ("BDUSS",)
 LOGIN_COOKIE_DOMAINS = ("kukuai.cn", "baidu.com")
 DEFAULT_OUT = "~/.kukuai/cookies.json"
-# 读 cookie 时按这些地址查询（跨域登录都要覆盖）
-COOKIE_HOSTS = ["https://www.kukuai.cn/", "https://kuku.baidu.com/", "https://baidu.com/",
-                "https://passport.kukuai.cn/", "https://passport.baidu.com/"]
+# 读 cookie 时按这些地址查询
+COOKIE_HOSTS = ["https://kuku.baidu.com/", "https://baidu.com/", "https://passport.baidu.com/"]
+
+# 实测只需要这两条，其余 20 多条都是登录过程的副产物（逐个删减验证过）：
+#   BDUSS@.baidu.com          —— 账号身份
+#   STOKEN@.kuku.baidu.com    —— 活动域的会话令牌
+# 少任何一条都会 errno=-6；多出来的（PANPSC/PTOKEN/UBI/pplogid…）全都不影响。
+# 兜底：如果用户登录态里结构特殊，这两个不全，就保留全部而不是存个废的
+REQUIRED_COOKIES = [("BDUSS", "baidu.com"), ("STOKEN", "kuku.baidu.com")]
 
 APP_TITLE = "库库AI Cookie 抓取工具"
 APP_VERSION = "2.0"
@@ -186,12 +189,14 @@ def browser_candidates():
 
 
 def free_port(preferred=9222):
-    """优先用 9222，被占用就往后找。"""
-    for p in [preferred] + list(range(9223, 9300)):
+    """找一个没被占用的端口。用 bind 试探，毫秒级返回（connect 试会卡住启动）。"""
+    for p in range(preferred, preferred + 40):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(0.3)
-            if s.connect_ex((HOST, p)) != 0:
+            try:
+                s.bind((HOST, p))
                 return p
+            except OSError:
+                continue
     return preferred
 
 
@@ -452,36 +457,37 @@ def read_cookies(port):
         return None
 
 
-def save_cookies(cookies, out_path):
+def pick_needed(cookies):
+    """只留真正需要的 cookie；必需项不全时原样返回，避免存出一个不能用的文件。"""
     data = normalize(cookies)
+    picked = []
+    for name, dom in REQUIRED_COOKIES:
+        for c in data:
+            d = (c.get("domain") or "").lstrip(".").lower()
+            if c["name"] == name and (d == dom or d.endswith("." + dom)):
+                picked.append(c)
+                break
+    if len(picked) < len(REQUIRED_COOKIES):
+        return data, False
+    return picked, True
+
+
+def save_cookies(cookies, out_path):
+    data, minimal = pick_needed(cookies)
     if not data:
-        return None, None
+        return None, None, False
     path = Path(os.path.expanduser(str(out_path)))
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    return data, payload
+    return data, payload, minimal
 
 
-def browser_ws(port):
-    """拿浏览器级别的调试地址，用来新建标签页。"""
-    return cdp_json(port, "/json/version").get("webSocketDebuggerUrl")
-
-
-def open_tab(port, url, background=False):
-    """在同一个浏览器里新开一个标签页。"""
-    ws = browser_ws(port)
-    if not ws:
-        return False
-    try:
-        cdp = CDP(ws)
-        try:
-            cdp.send("Target.createTarget", {"url": url, "background": background})
-        finally:
-            cdp.close()
-        return True
-    except Exception:
-        return False
+def _cleanup(procs):
+    """关窗后的收尾：杀浏览器进程、删临时配置。放后台线程，不阻塞界面。"""
+    profile = Path(os.environ.get("TEMP", "/tmp")) / "kukuai-cookie-profile"
+    stop_procs(procs)
+    shutil.rmtree(profile, ignore_errors=True)
 
 
 def launch(exe: Path, port: int, profile: Path, url=None):
@@ -568,10 +574,12 @@ def cli_main(args):
                   % args.timeout)
             return 4
 
-        data, payload = save_cookies(cookies, args.out)
+        data, payload, minimal = save_cookies(cookies, args.out)
         if not data:
             popup("没有抓到 Cookie", "读到了空列表，请重试。")
             return 5
+        if not minimal:
+            info("注意：必需 cookie 不全，已保留全部 %d 条" % len(data))
         copied = False if args.no_clipboard else copy_to_clipboard(payload)
         info("")
         info("已保存 %d 条 Cookie → %s" % (len(data), os.path.expanduser(args.out)))
@@ -610,7 +618,7 @@ class CookieApp:
         self.tk = tk
         self.root = root
         self.out_path = os.path.expanduser(out_path or DEFAULT_OUT)
-        self.port = port or free_port()
+        self.port = port       # None：等点①时再挑端口，避免启动时卡
         self.timeout = timeout
         self.url = url or DEFAULT_URL
 
@@ -621,6 +629,7 @@ class CookieApp:
         self.procs = []
         self.worker = None
 
+        root.withdraw()        # 先藏起来，等布局算完再显示，避免左上角闪一下
         root.title("%s v%s" % (APP_TITLE, APP_VERSION))
         root.configure(bg=COLORS["bg"])
         root.geometry("600x640")
@@ -637,6 +646,8 @@ class CookieApp:
         font = "Microsoft YaHei UI"
 
         self._build_widgets(font)
+        root.update_idletasks()
+        root.deiconify()
 
     # --- 窗口基础 ---
     @staticmethod
@@ -785,6 +796,7 @@ class CookieApp:
         self.worker.start()
 
     def _worker(self):
+        self.port = self.port or free_port()     # 点①时才挑，毫秒级
         profile = Path(os.environ.get("TEMP", "/tmp")) / "kukuai-cookie-profile"
         shutil.rmtree(profile, ignore_errors=True)
         try:
@@ -815,13 +827,6 @@ class CookieApp:
                 self._ui(self._fail,
                          "浏览器调试端口没起来（可能被安全软件拦了）。关掉杀软后重试。")
                 return
-
-            # 邀请页放副标签：保留邀请记录，但登录必须在工作台做
-            if INVITE_URL and INVITE_URL != (self.url or ""):
-                if open_tab(self.port, INVITE_URL, background=True):
-                    self._ui(self.log, "已另开邀请页标签（可关闭，不影响抓取）")
-                else:
-                    self._ui(self.log, "邀请页标签没打开（不影响抓取）")
 
             self._ui(self.set_status,
                      "浏览器已打开 —— 点左下角签到卡上的「登录领奖」登录，成功后自动抓取。", "work")
@@ -869,13 +874,15 @@ class CookieApp:
                             return
                         time.sleep(1.5)
                         continue
-                    data, payload = save_cookies(cookies, self.out_path)
+                    data, payload, minimal = save_cookies(cookies, self.out_path)
                     if not data:
                         self._ui(self._fail, "读到了 Cookie 但没有 BDUSS，可能还没登录完成，重试一次。")
                         return
                     self.payload = payload
                     self.cookie_count = len(data)
                     note = "" if state else "（未做服务端校验，如遇未登录请重抓）"
+                    if not minimal:
+                        note += "（必需项不全，已保留全部）"
                     self._ui(self._success, len(data), note)
                     return
                 elapsed = int(time.time() - start)
@@ -932,15 +939,15 @@ class CookieApp:
 
     # --- 关闭 ---
     def on_close(self):
-        if self.busy:
-            if not self._ask_quit():
-                return
-            self.stop_flag = True
-        try:
-            stop_procs(self.procs)
-        except Exception:
-            pass
+        if self.busy and not self._ask_quit():
+            return
+        self.stop_flag = True
+        procs, self.procs = list(self.procs), []
+        self.root.withdraw()          # 立刻隐藏，别让用户等清理
         self.root.destroy()
+        # 杀浏览器 / 删临时配置都放后台，窗口关闭瞬间完成
+        import threading
+        threading.Thread(target=_cleanup, args=(procs,), daemon=True).start()
 
     def _ask_quit(self):
         from tkinter import messagebox
