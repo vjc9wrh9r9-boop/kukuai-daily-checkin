@@ -1,17 +1,38 @@
 # 版本变更记录
 
+## v4.0.2 — 2026-10-28（双入口自动选域）
+
+**修正上一版的判断**：`kuku.baidu.com` 和 `www.kukuai.cn` 是同一账号的两个入口，
+各自有独立 cookie，任务进度共享。之前说「14 条不可用」不准确——它对 `www.kukuai.cn` 完全可用。
+
+**改动**：
+
+| 位置 | 改动 |
+| --- | --- |
+| `scripts/kukuai_checkin.py` | 新增 `resolve_host()`：按 cookie 落域决定先试哪个入口，再问 `userreport`，`errno=0` 才用；之后所有页面/接口都走该域（`base_host` 字段可查） |
+| 同上 | 新增 `--host baidu\|kukuai` 强制入口；`--url` 仍可手动指定 |
+| 同上 | 页面文案像未登录但接口已登录时，以接口为准（文案随版本变） |
+| `tools/get_cookie.py` | `check_login_any()`：两个域都问一遍，任一 `errno=0` 即算成功，并标注登录域；kukuai.cn 登录保留全套 14 条 |
+| 版本号 | 工具 `3.8.1`，技能 `4.0.2` |
+
+**实测**：同一浏览器注入两套 cookie → 2 条那套 `base_host=https://kuku.baidu.com`，14 条那套 `base_host=https://www.kukuai.cn`，
+两边读到的完成度完全一致（网页端 3/6、PC客户端 4/7）。
+
 ## v4.0.1 — 2026-10-28（Cookie 工具：登错域不再假装成功）
 
 **现象**：用户用 `GetCookie.exe` 抓到 **14 条** Cookie（2209 字符），工具显示「抓取成功」，
 但拿这 14 条跑脚本直接 `登录态失效`。
 
-**根因**（看抓到的 cookie 清单即可确认）：
+**根因**：登录写在了 `.kukuai.cn` 域（在 www.kukuai.cn 登录的），而脚本只会打 `kuku.baidu.com`——
+两个入口的 cookie 互不相认。14 条本身**是有效的**，只是对 `www.kukuai.cn` 有效（同一账号、同一份任务进度，
+实测两边都是 chat 3/3、expert 1/1）。真正的问题是工具「没验证也报成功」：
 
-| 实际抓到 | 应该抓到 |
+| 旧版漏洞 | 后果 |
 | --- | --- |
-| `BDUSS@.kukuai.cn`、`STOKEN@.passport.kukuai.cn`、`PTOKEN@.passport.kukuai.cn` … | `BDUSS@.baidu.com` + `STOKEN@.kuku.baidu.com` |
+| `has_login()` 把 `.kukuai.cn` 的 BDUSS 也算已登录 | 误以为已完成 |
+| `app_login_state()` 返回 `None` 时直接保存 | 没验证也存 |
+| `pick_needed()` 缺必需项就回退「保存全部」 | 14 条 + 「已复制」看着像正常 |
 
-登录写在了 `.kukuai.cn` 域（在 www.kukuai.cn / 邀请页那个标签登的），活动页在 `kuku.baidu.com`，不认。
 旧版三个漏洞叠加成「假成功」：
 
 1. `has_login()` 把 `.kukuai.cn` 的 BDUSS 也算已登录 → 误判
