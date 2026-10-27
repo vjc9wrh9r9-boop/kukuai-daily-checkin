@@ -8,7 +8,22 @@
 - 「每天定时自动签到」——在 Agent 里建定时任务，或用 GitHub Actions。
 - 云端执行，不依赖本机客户端在线，电脑关机也能签到。
 
-## 2. 导出登录 Cookie
+## 2. 拿到登录 Cookie
+
+### 2.0 双击 exe（推荐）
+
+`tools/GetCookie.exe` 双击即可：
+
+1. 弹出独立浏览器窗口，自动打开 kukuai.cn（用的是你本机 Chrome / Edge，临时配置）
+2. 你用百度账号登录
+3. 工具通过 DevTools 协议读出 Cookie，2 秒内自动保存到 `~/.kukuai/cookies.json` 并关窗
+
+只读它自己那个窗口，不碰日常浏览器数据，不装扩展、不上传。源码 `tools/get_cookie.py`。
+
+### 2.1 手工方式（没有 exe 时）
+
+### 2.2 浏览器开发者工具
+
 
 Cookie 等于登录凭据，只在本机/云端私有目录保存，不要外传。
 
