@@ -910,7 +910,11 @@ class Runner:
             key = task["key"]
             mode = task.get("auto", "manual")
             item = {"key": key, "name": task["name"], "auto": mode, "result": None}
-            if mode == "manual":
+            if key == "expert_chat" and not getattr(self.args, "with_expert", False):
+                # 召唤专家会弹《库库 AI 用户协议》，勾「我已阅读并同意」属于本人同意行为，
+                # 默认不做，必须显式加 --with-expert 才代勾
+                item["result"] = "跳过（需本人在弹窗勾选同意；要自动做加 --with-expert）"
+            elif mode == "manual":
                 item["result"] = "手动（需真人操作，跳过）"
             elif wanted is not None and key not in wanted:
                 item["result"] = "跳过（未在 --tasks 中指定）"
@@ -1204,6 +1208,8 @@ def main(argv=None):
     ap.add_argument("--no-tasks", "--only-signin", dest="no_tasks", action="store_true",
                     help="只签到，不清任务")
     ap.add_argument("--tasks", default="", help="只跑指定任务，逗号分隔: topic_chat,expert_chat,browse_square")
+    ap.add_argument("--with-expert", action="store_true",
+                    help="自动完成「召唤任意专家」任务；会代勾《库库 AI 用户协议》，默认不做，需本人明确同意后自行开启")
     ap.add_argument("--timeout", type=int, default=30, help="单步超时秒数（默认 30）")
     args = ap.parse_args(argv)
 
