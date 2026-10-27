@@ -58,25 +58,20 @@ python -m playwright install chromium
 
 也可以直接下载 [Release](https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases) 里的 zip 解压到 skills 目录。
 
-## 拿 Cookie（一个 exe，别按 F12）
+## 拿 Cookie（双击工具，两步）
 
-技能包**不再内置**这个 exe（11MB，云端 Agent 跑不了 Windows GUI，还容易在机器上留旧副本）。
-下载这一个文件就行，双击即用、不用解压：
+技能目录旁边就放着 `GetCookie-v3.8.3.exe`，双击即用：不装扩展、不上传数据、不用登录任何账号。
 
-直链（不用登录 GitHub）：
-<https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe>
+1. 解压收到的包 → 双击 **GetCookie-v3.8.3.exe**
+2. 点 **① 打开网页登录库库AI，抓取 Cookie** → 在打开的网页里点左下角签到卡「登录领奖」登录
+3. 状态条变绿（会标注登录域）→ 点 **② 复制已抓取的 Cookie** → 粘贴给 AI
 
-国内打不开就走镜像（同样不用登录）：
-<https://gh-proxy.com/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe>
-
-1. 点 **① 打开网页登录库库AI，抓取 Cookie** → 在打开的网页里点左下角签到卡「登录领奖」登录
-2. 状态条变绿（标注了登录域）→ 点 **② 复制已抓取的 Cookie** → 粘贴给 AI
-
-> 本机 Agent 也可以 `python tools/fetch_tool.py` 自动下到 `tools/`，再用 `explorer.exe` 拉起。
-
-> **2 条 / 14 条都正常**：2 条是 `kuku.baidu.com` 登录，14 条是 `www.kukuai.cn` 登录；
+> **2 条 / 14 条都正常**：2 条=登录在 `kuku.baidu.com`，14 条=登录在 `www.kukuai.cn`；
 > 同一账号、同一份进度，脚本会自动选对入口（`--dry-run` 的 `base_host` 可查）。
-> v3.8.1 起必须接口 `errno=0` 才保存，不会再「说成功其实没登录」。
+
+> 万一只有技能目录、没有 exe：
+> <https://gh-proxy.com/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.4/GetCookie.exe>
+> （公开链接，不用登录 GitHub）
 
 ## 用法
 
