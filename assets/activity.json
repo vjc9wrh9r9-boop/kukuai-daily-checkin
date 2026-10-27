@@ -11,7 +11,8 @@
     "库库网页版",
     "库库手机端"
   ],
-  "platforms_synced": true,
+  "platforms_synced": false,
+  "platforms_note": "签到是账号级、各端同步；但「每日任务」进度分渠道独立：网页端 task_from=kuku_signin_30_web，PC 客户端 task_from=kuku_signin_30_pc，两套进度互不同步（2026-10-28 实测）",
   "daily_reward": {
     "points": 10,
     "lottery": 1,
@@ -35,6 +36,23 @@
       "reward": "网盘SVIP月卡（必得）"
     }
   ],
+  "api": {
+    "tasklist": "/api/taskscore/tasklist?task_from=",
+    "complete": "/api/genflowpro/activity/taskcomplete",
+    "app_id": 123971023,
+    "clienttype": 400,
+    "version": "1.6.32"
+  },
+  "channels": [
+    {
+      "key": "kuku_signin_30_web",
+      "label": "网页端"
+    },
+    {
+      "key": "kuku_signin_30_pc",
+      "label": "PC客户端"
+    }
+  ],
   "selectors": {
     "signin_card": "[data-testid=\"signin-promo\"]",
     "signin_cta": "[data-testid=\"signin-promo-cta\"]",
@@ -50,6 +68,8 @@
     "task_card_title": ".pc-kuku-task-card__title",
     "task_card_action": ".pc-kuku-task-card__action",
     "task_card_btn": ".pc-kuku-task-card__btn",
+    "chat_input": "div.tiptap[contenteditable='true']",
+    "chat_row": ".genflow-message-list-row",
     "expert_card": "article.expert-card",
     "expert_summon": "召唤"
   },
@@ -104,6 +124,8 @@
     {
       "key": "topic_chat",
       "name": "与库库聊聊热门话题",
+      "type_id": 249,
+      "event_type": "CONVERSATION_DAILY_TASK",
       "limit": 3,
       "reward": "抽奖+1（积分奖励以页面实时展示为准）",
       "auto": "chat",
@@ -116,6 +138,8 @@
     {
       "key": "expert_chat",
       "name": "召唤任意专家并发起对话",
+      "type_id": 259,
+      "event_type": "EXPERT_CONVERSATION_TASK",
       "limit": 1,
       "reward": "抽奖+1（积分奖励以页面实时展示为准）",
       "auto": "expert",
@@ -128,6 +152,8 @@
     {
       "key": "browse_square",
       "name": "浏览10s知识广场",
+      "type_id": 251,
+      "event_type": "VIEW_KNOWLEDGE_SQUARE",
       "limit": 1,
       "reward": "抽奖+1",
       "auto": "square",
@@ -138,8 +164,36 @@
       ]
     },
     {
+      "key": "upload_local",
+      "name": "去上传一次本地文件",
+      "type_id": 261,
+      "event_type": "UPLOAD_LOCAL_FILE",
+      "limit": 1,
+      "reward": "抽奖+1",
+      "auto": "upload",
+      "actions": [
+        "去完成",
+        "去上传"
+      ]
+    },
+    {
+      "key": "import_netdisk",
+      "name": "去导入一次网盘文件",
+      "type_id": 260,
+      "event_type": "IMPORT_NETDISK_FILE",
+      "limit": 1,
+      "reward": "抽奖+1",
+      "auto": "import",
+      "actions": [
+        "去完成",
+        "去导入"
+      ]
+    },
+    {
       "key": "invite_pc",
       "name": "邀请新用户下载登录库库PC端",
+      "type_id": 252,
+      "event_type": "INVITE_CONVERSATION_TASK",
       "limit": null,
       "reward": "网盘SVIP天卡、库库积分+20、抽奖+1",
       "auto": "manual",
@@ -150,17 +204,33 @@
     {
       "key": "invite_chat",
       "name": "邀请好友与库库对话",
+      "type_id": 250,
+      "event_type": "INVITE_CONVERSATION_TASK",
       "limit": 10,
       "reward": "库库积分+5、抽奖+1",
       "auto": "manual",
       "actions": [
         "邀请好友"
       ]
+    },
+    {
+      "key": "download_pc",
+      "name": "下载并登录库库PC客户端",
+      "type_id": 263,
+      "event_type": "",
+      "limit": 1,
+      "reward": "网盘SVIP天卡、抽奖+1",
+      "auto": "manual",
+      "actions": [
+        "去完成"
+      ]
     }
   ],
   "notes": [
-    "任务清单实测：邀请新用户下载登录库库PC端、与库库聊聊热门话题(0/3)、邀请好友与库库对话(0/10)、召唤任意专家并发起对话、浏览10s知识广场，共 5 张卡",
-    "部分账号还会多出「下载并登录库库PC客户端」，需装 PC 客户端，不做自动化",
+    "网页端任务 6 张卡：下载并登录库库PC客户端、邀请新用户下载登录库库PC端、邀请好友与库库对话(0/10)、召唤任意专家并发起对话、浏览10s知识广场、与库库聊聊热门话题(0/3)",
+    "PC 客户端任务 7 张卡：比网页端多「去导入一次网盘文件」「去上传一次本地文件」，少「下载并登录库库PC客户端」",
+    "任务进度两套：网页端 task_from=kuku_signin_30_web，PC 客户端 task_from=kuku_signin_30_pc；网页端做完，客户端里的卡仍是「去完成」，这正是此前「脚本说做完了、界面还是 0/3」的原因",
+    "进度一律以 /api/taskscore/tasklist 返回的 task_finish_count / task_count_max 为准，不看脚本动作自述",
     "日历支持补签（标「补」的历史日期），脚本不自动补签"
   ]
 }
