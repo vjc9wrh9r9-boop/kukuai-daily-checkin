@@ -51,7 +51,8 @@ LOGIN_COOKIE_NAMES = ("BDUSS",)
 LOGIN_COOKIE_DOMAINS = ("kukuai.cn",)
 DEFAULT_OUT = "~/.kukuai/cookies.json"
 # 读 cookie 时按这些地址查询（跨域登录都要覆盖）
-COOKIE_HOSTS = ["https://www.kukuai.cn/", "https://kuku.baidu.com/", "https://baidu.com/"]
+COOKIE_HOSTS = ["https://www.kukuai.cn/", "https://kuku.baidu.com/", "https://baidu.com/",
+                "https://passport.kukuai.cn/", "https://passport.baidu.com/"]
 
 APP_TITLE = "库库AI Cookie 抓取工具"
 APP_VERSION = "2.0"
@@ -378,6 +379,50 @@ def has_login(cookies):
 def has_baidu_login(cookies):
     """宽松判定：任意域上有 BDUSS（只有 .baidu.com 时说明登录在错误的地方）。"""
     return any(c.get("name") == "BDUSS" for c in cookies)
+
+
+USERREPORT_API = ("https://www.kukuai.cn/api/genflowpro/common/userreport"
+                   "?clienttype=400&app_id=123971023&web=1&channel=chunlei&version=1.6.32")
+
+
+def app_login_state(port):
+    """问工作台自己：这个会话到底登没登录。
+
+    返回 True（已登录）/ False（接口说是未登录）/ None（判断不了）。
+    只看 cookie 里有没有 BDUSS 会误报——服务端可能不认，这里以接口为准。
+    """
+    try:
+        targets = cdp_json(port, "/json/list")
+    except Exception:
+        return None
+    page = None
+    for t in targets:
+        if t.get("type") == "page" and t.get("webSocketDebuggerUrl") \
+                and "kukuai.cn" in (t.get("url") or ""):
+            page = t
+            break
+    if not page:
+        return None
+    expr = ("fetch(%r, {credentials: 'include'})"
+            ".then(r => r.text()).catch(e => 'FETCH_ERROR')" % USERREPORT_API)
+    try:
+        cdp = CDP(page["webSocketDebuggerUrl"])
+        try:
+            res = cdp.send("Runtime.evaluate",
+                           {"expression": expr, "awaitPromise": True, "returnByValue": True})
+        finally:
+            cdp.close()
+    except Exception:
+        return None
+    val = ((res.get("result") or {}).get("result") or {}).get("value")
+    if not isinstance(val, str):
+        return None
+    if "FETCH_ERROR" in val:
+        return None
+    m = re.search(r'"errno"\s*:\s*(-?\d+)', val)
+    if not m:
+        return None
+    return m.group(1) == "0"
 
 
 def read_cookies(port):
@@ -788,6 +833,7 @@ class CookieApp:
             lost = 0
             next_tick = 0
             warned_baidu = False
+            verify_fail = 0
             while time.time() < deadline:
                 if self.stop_flag:
                     return
@@ -810,13 +856,27 @@ class CookieApp:
                     again = read_cookies(self.port)
                     if again and has_login(again):
                         cookies = again
+                    # 关键：以工作台接口为准。只要接口说未登录，就不算抓取成功
+                    state = app_login_state(self.port)
+                    if state is False:
+                        verify_fail += 1
+                        if verify_fail == 1:
+                            self._ui(self.log, "检测到登录 cookie，但工作台接口仍返回未登录，等会话生效…")
+                        if verify_fail >= 8:
+                            self._ui(self._fail,
+                                     "工作台接口一直返回「未登录」。登录可能没真正完成：请确认网页右上角"
+                                     "出现了头像、签到卡不再显示「登录领奖」，然后点 ① 重试。")
+                            return
+                        time.sleep(1.5)
+                        continue
                     data, payload = save_cookies(cookies, self.out_path)
                     if not data:
                         self._ui(self._fail, "读到了 Cookie 但没有 BDUSS，可能还没登录完成，重试一次。")
                         return
                     self.payload = payload
                     self.cookie_count = len(data)
-                    self._ui(self._success, len(data))
+                    note = "" if state else "（未做服务端校验，如遇未登录请重抓）"
+                    self._ui(self._success, len(data), note)
                     return
                 elapsed = int(time.time() - start)
                 if elapsed >= next_tick:
@@ -835,9 +895,9 @@ class CookieApp:
             shutil.rmtree(profile, ignore_errors=True)
             self._ui(self._set_busy, False)
 
-    def _success(self, count):
-        self.set_status("✅ 抓取成功！已保存 %d 条 Cookie。点第 ② 个按钮复制，然后粘贴到 Agent 对话里。"
-                        % count, "ok")
+    def _success(self, count, note=""):
+        self.set_status("✅ 抓取成功（工作台已确认登录）！已保存 %d 条 Cookie。点第 ② 个按钮复制。"
+                        % count + (note or ""), "ok")
         self.log("抓取成功：%d 条，已写入 %s" % (count, self.out_path))
         self.log("临时浏览器窗口已关闭")
         self.btn_run.configure(text="重新抓取（会覆盖旧 Cookie）")
