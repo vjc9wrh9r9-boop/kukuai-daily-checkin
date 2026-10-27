@@ -1,13 +1,13 @@
 ---
-name: kukuai-daily-checkin
-display_name: "库库AI 每日签到"
-version: "2.2.0"
+name: kukuai-checkin-tasks
+display_name: "库库AI 签到 + 每日任务"
+version: "3.0.0"
 updated: "2026-10-27"
 activity: "每日签到得网盘SVIP月卡 · 做任务抽好礼 赢苹果笔记本（2026-10-21 ~ 2026-12-04）"
 description: "库库AI（kukuai.cn / kuku.baidu.com，百度文库与百度网盘联合推出的 AI 办公智能体平台）每日签到与每日任务的云端自动化。当前适配 2026-10-21 起的新一期活动「每日签到得网盘SVIP月卡」，连签 3/7/15/30 天解锁网盘 SVIP，做任务攒积分与抽奖次数。当用户提出「帮我签到」「自动签到」「领一下库库AI的每日积分」「完成库库AI每日任务」「每天定时自动签到」「今天签到成功没 / 连签几天了」等诉求时使用。用导出的登录 Cookie 在云端跑脚本完成签到与任务，无需本机浏览器。"
 ---
 
-# 库库AI 每日签到（云端 · 2026Q4 期）
+# 库库AI 签到 + 每日任务（v3.0.0 · 2026Q4 期）
 
 ## 当前活动（2026-10-21 ~ 2026-12-04）
 
@@ -30,12 +30,33 @@ description: "库库AI（kukuai.cn / kuku.baidu.com，百度文库与百度网�
 
 签到本身在首页就能完成（左下角签到卡），任务清单需要再进活动页，因此脚本分两段执行。
 
+## 交给其他 Agent / 朋友使用时的边界
+
+这个 Skill 只做下面这些动作，超出的都不做。别人接手时按这张表核对即可：
+
+| 会做 | 不会做 |
+| --- | --- |
+| 打开 kukuai.cn，用**你自己的** Cookie 登录态 | 不索取账号密码、要验证码 |
+| 点一次签到 | 不发邀请、不分享链接、不加好友 |
+| 「与库库聊聊热门话题」发 3 条行业类问题 | 不发任何隐私内容、不上传本地文件 |
+| 「浏览10s知识广场」停留 12 秒 | 不浏览与任务无关的页面 |
+| 截图 + 写一份结果摘要到本地 `outputs/` | 不把 Cookie 写进日志、不回传任何数据到外部服务 |
+
+两项默认关闭，要本人确认才开：
+
+| 任务 | 为什么默认关 | 怎么开 |
+| --- | --- | --- |
+| 召唤任意专家 | 会弹《库库 AI 用户协议》，勾同意是本人行为 | `--with-expert` |
+| 邀请类任务 | 必须真人 | 不支持自动化 |
+
+前置动作一律先 `--dry-run`：只校验登录态和页面结构，不签到、不点任务，确认没问题再正式跑。
+
 ## 🔰 快速上手
 
 1. **导出 Cookie**：浏览器登录 `https://www.kukuai.cn/`（或 `https://kuku.baidu.com`），按 `references/cloud-mode.md` 导出（JSON 或字符串）。
 2. **首次务必 dry-run**：`python scripts/kukuai_checkin.py --cookies <路径> --out outputs/ --dry-run --probe-entry`
 3. **正式签到**：`python scripts/kukuai_checkin.py --cookies <路径> --out outputs/`
-4. **要每天自动**：说「帮我建每天自动签到」，注册每日定时任务（见「定时任务」）。
+4. **要每天自动**：说「帮我建每天自动签到」，让 Agent 建一个**它自己的定时任务 / 自动化任务**（见「定时任务」）。注意是 Agent 内置的自动化，不是 Windows 计划任务 / crontab。
 
 > 🔒 本 Skill 不内置任何账号或登录态。每个人用自己的百度账号、自己导出的 Cookie，不要往 Skill 里写别人的真实 Cookie。
 
@@ -101,7 +122,17 @@ python scripts/kukuai_checkin.py --cookies <cookie路径> --tasks topic_chat,bro
 
 ### 4. 定时任务
 
-建每天固定时间的周期任务（建议 09:00，便于 Cookie 失效时人工介入），任务描述写明：用 `~/.kukuai/cookies.json` 运行本 Skill 的 `scripts/kukuai_checkin.py`，完成后把 `kukuai-summary-*.md` 内容推给用户；出现「登录态失效」提醒重新导出 Cookie；`warnings` 里有断签或活动临期提示时重点提醒。
+> ⚠️ 这里说的「定时任务」指 **Agent 自带的定时任务 / 自动化任务**（在 Agent 界面里新建的那条周期任务），**不是 Windows 计划任务（taskschd.msc）、不是 crontab、也不是开机启动项**。不要用 `schtasks` / `crontab` 去配，配了也不受 Agent 管，结果没人汇报。
+
+在 Agent 里建一条每天固定时间的周期任务（建议 09:00 前后，便于 Cookie 失效当天人工处理），任务描述写明：用 `~/.kukuai/cookies.json` 运行本 Skill 的 `scripts/kukuai_checkin.py`，完成后把 `kukuai-summary-*.md` 内容推给用户；出现「登录态失效」提醒重新导出 Cookie；`warnings` 里有断签或活动临期提示时重点提醒。
+
+区别：
+
+| 方式 | 谁触发 | 能不能把结果推给你 | 电脑关机时 |
+| --- | --- | --- | --- |
+| Agent 定时任务 / 自动化任务 | Agent 客户端 | 能，按对话汇报 | 不能（客户端没开就不跑） |
+| Windows 计划任务 / crontab | 操作系统 | 不能，只能自己写日志 | 不能 |
+| GitHub Actions | GitHub 云端 | 能用 issue / 仓库页面看 | **能**（推荐给「不想开电脑」的场景） |
 
 ## 任务清单与自动化能力
 
