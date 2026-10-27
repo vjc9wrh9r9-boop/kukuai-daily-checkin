@@ -1,7 +1,7 @@
 ---
 name: kukuai-checkin-tasks
 display_name: "库库AI 签到 + 每日任务"
-version: "4.0.1"
+version: "4.0.2"
 updated: "2026-10-28"
 activity: "每日签到得网盘SVIP月卡 · 做任务抽好礼 赢苹果笔记本（2026-10-21 ~ 2026-12-04）"
 description: "库库AI（kuku.baidu.com / kukuai.cn，百度 AI 办公智能体）每日签到与每日任务的自动化。适配 2026-10-21 起的新一期活动「每日签到得网盘SVIP月卡」，连签 3/7/15/30 天解锁网盘 SVIP，做任务攒积分与抽奖次数。**任务进度分「网页端」和「PC 客户端」两套独立记录，脚本两端都做、都核验**。当用户提出「帮我签到」「自动签到」「领一下库库AI的每日积分」「完成库库AI每日任务」「今天签到成功没 / 连签几天了」等诉求时使用。本 Skill 自带 Cookie 抓取工具 tools/GetCookie.exe（双击即用），不要让用户手动按 F12。"
@@ -80,15 +80,19 @@ v4 会两个渠道都做、都上报、都核验，所以 `task_board` 里会同
 >
 > 手动 F12 只在用户**明确拒绝用工具**、且工具确实无法运行时作为最后兜底（见「方式 B」）。
 
-> ### 🚨 状态条显示「已复制 14 条」= 抓错域了（v3.8.0 已堵住）
+> ### ✅ 「已复制 2 条」或「已复制 14 条」都正常，看登录域
 >
-> 正确的是 **「已复制 2 条」**（`BDUSS@.baidu.com` + `STOKEN@.kuku.baidu.com`）。
+> 库库AI 有两个前端入口，**两套 cookie 互不相认**，但背后是同一个账号、同一份任务进度：
 >
-> 出现 14 条的，都是登录写到了 `.kukuai.cn`（在 www.kukuai.cn 或邀请页登录的），
-> 活动页只认 `kuku.baidu.com`，这种 Cookie 跑脚本必然报「登录态失效」。
+> | 状态条 | 登录域 | 对应 cookie | 脚本走哪个入口 |
+> | --- | --- | --- | --- |
+> | 已复制 **2 条** | `kuku.baidu.com` | `BDUSS@.baidu.com` + `STOKEN@.kuku.baidu.com` | `https://kuku.baidu.com` |
+> | 已复制 **14 条** | `www.kukuai.cn` | `BDUSS@.kukuai.cn`、`STOKEN@.passport.kukuai.cn` 等 | `https://www.kukuai.cn` |
 >
-> 现在的工具：接口不说「已登录」就**不存**，并且会提示「切到 kuku.baidu.com/app 标签页，点签到卡『登录领奖』重登」。
-> 如果你的包还是旧版（状态条仍出 14 条），换 v4.0.1 的 `GetCookie.exe`。
+> v4.0.2 起脚本会**先探测哪个域认这份 cookie**（`--dry-run` 的 `base_host` 字段可以看到），
+> 不用再纠结抓了几条。工具也会标注「登录域」。
+>
+> 唯一要避免的是「工具说成功、但其实没登录」——现在必须接口 `errno=0` 才保存。
 
 ## 当前活动（2026-10-21 ~ 2026-12-04）
 
