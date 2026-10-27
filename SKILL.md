@@ -36,24 +36,34 @@ v4 会两个渠道都做、都上报、都核验，所以 `task_board` 里会同
 
 > ## ⛔ 第一步：先让用户跑 Cookie 工具（不可跳过）
 >
-> 抓 Cookie 只需要一个**单文件 exe**（约 11MB，双击即用，不装扩展）。**技能包里不再带这个 exe**
-> —— 它是 Windows GUI，云端 Agent 下载了也跑不了，带在包里只会让 11MB 的 zip 传不动、还容易留旧副本。
+> 抓 Cookie 只需要一个**单文件 exe**（11.3MB，双击即用、不装扩展、**不需要 GitHub 账号**）。
+> **技能包里不带这个 exe**：它是 Windows GUI，云端 Agent 下载了也执行不了，带在包里只会让 zip 变成 11MB、
+> 还会在机器上留多份旧副本互相冒充（真实踩过：`%TEMP%\pyi4` 那份旧的被当成「最新版」）。
 >
-> **下载地址（唯一来源，版本固定）**：
+> ### 下载地址（公开 Release，点开就下，**不用登录、不用注册**）
 >
-> > https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe
+> | 源 | 地址 |
+> | --- | --- |
+> | GitHub 直链 | https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe |
+> | 国内镜像 1 | https://gh-proxy.com/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe |
+> | 国内镜像 2 | https://ghfast.top/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe |
+> | 国内镜像 3 | https://ghproxy.net/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe |
 >
-> ### 情况 0：Agent 在云端 / 沙箱（最常见）→ 只发链接
+> ### 情况 0：你在云端 / 沙箱（最常见）→ 先自己试下载，不行就把链接给用户
 >
-> 你执行不了 Windows exe。**别让用户解压任何 zip**，直接把上面那个链接发给他：
+> 1. **先自己试**（能下就下，省用户一步）：
+>    ```bash
+>    python "<Skill目录>/tools/fetch_tool.py" --out /tmp/GetCookie.exe
+>    ```
+>    这个脚本会自动在「GitHub 直链 → 三个国内镜像」之间换源，成功后告诉你用的是哪个源。
+>    下到了就**把文件发给用户**（能发附件就发附件），并说一句「双击运行，点 ① 登录，点 ② 复制」。
+> 2. **下不动（网络被墙 / 沙箱禁网）**：直接把上面表格里的链接发给用户，**优先给镜像**，加一句：
+>    > 「点开就下载，不用登录 GitHub。如果打不开，换第二个链接试试。」
 >
-> > 「下载这个 exe（不用解压）→ 双击 → 点 ① → 在打开的网页里点左下角签到卡『登录领奖』登录
-> > → 状态条变绿后点 ② → 把复制到的内容粘贴给我」
->
-> ### 情况 A：本机是 Windows 且你能执行命令 → 先取工具再拉起
+> ### 情况 A：本机是 Windows 且你能执行命令 → 下载后直接拉起
 >
 > ```bash
-> python "<Skill目录>/tools/fetch_tool.py"      # 没有 exe 时会自动下到 tools/，已存在则跳过
+> python "<Skill目录>/tools/fetch_tool.py"      # 自动换源下到 tools/，已存在则跳过
 > explorer.exe "<Skill目录>/tools/GetCookie.exe"
 > ```
 >
@@ -62,15 +72,25 @@ v4 会两个渠道都做、都上报、都核验，所以 `task_board` 里会同
 >
 > ### 情况 B：你启动不了 GUI（无桌面 / 命令被拒）→ 让用户自己双击
 >
-> 仍然不要退回 F12。发这段（把链接换成上面的真实地址）：
+> 仍然不要退回 F12。发这段（链接用上面的镜像）：
 >
-> > 下载：https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe
-> > 双击运行 → 点「① 打开网页登录库库AI，抓取 Cookie」→ 在弹出的浏览器里登录
-> > → 状态条变绿后点「② 复制已抓取的 Cookie」→ 粘贴发给我
+> > 下载：https://gh-proxy.com/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe
+> > （点开就下，不用登录）双击运行 → 点「① 打开网页登录库库AI，抓取 Cookie」
+> > → 在弹出的浏览器里登录 → 状态条变绿后点「② 复制已抓取的 Cookie」→ 粘贴发给我
 >
 > ### 情况 C：用户说「我不会 / 有没有工具」
 >
-> 直接回答「有工具，就一个 exe」，给链接与两个按钮的用法。**不要再讲 F12。**
+> 直接回答「有工具，就一个 exe，点这个链接就下载，不用登录」，给镜像链接与两个按钮的用法。**不要再讲 F12。**
+>
+> ### 网络/权限问题的标准应答
+>
+> | 用户说 | 你该怎么回 |
+> | --- | --- |
+> | 「GitHub 打不开」 | 换镜像 1/2/3；再不行让他在手机流量下打开 |
+> | 「要登录吗」 | **不用**，公开 Release，点开直接下载 |
+> | 「下载被拦截/报毒」 | SmartScreen 点「更多信息 → 仍要运行」；杀软拦了就临时允许 |
+> | 「公司网禁了」 | 让他在自己手机或家里电脑上下载，再把文件传到电脑 |
+> | 全都不行 | 最后才退到 F12 手动复制（见「方式 B」），并说明「手动复制容易漏 STOKEN」 |
 >
 > ### ❌ 明确禁止
 >
