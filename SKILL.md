@@ -1,7 +1,7 @@
 ---
 name: kukuai-daily-checkin
 display_name: "库库AI 每日签到"
-version: "2.1.0"
+version: "2.2.0"
 updated: "2026-10-27"
 activity: "每日签到得网盘SVIP月卡 · 做任务抽好礼 赢苹果笔记本（2026-10-21 ~ 2026-12-04）"
 description: "库库AI（kukuai.cn / kuku.baidu.com，百度文库与百度网盘联合推出的 AI 办公智能体平台）每日签到与每日任务的云端自动化。当前适配 2026-10-21 起的新一期活动「每日签到得网盘SVIP月卡」，连签 3/7/15/30 天解锁网盘 SVIP，做任务攒积分与抽奖次数。当用户提出「帮我签到」「自动签到」「领一下库库AI的每日积分」「完成库库AI每日任务」「每天定时自动签到」「今天签到成功没 / 连签几天了」等诉求时使用。用导出的登录 Cookie 在云端跑脚本完成签到与任务，无需本机浏览器。"
@@ -67,6 +67,9 @@ python scripts/kukuai_checkin.py --cookies <cookie路径> --out outputs/ --dry-r
 # 正式：签到 + 清全部可自动任务
 python scripts/kukuai_checkin.py --cookies <cookie路径> --out outputs/
 
+# 连「召唤专家」也做（会代勾用户协议，需本人明确同意后再用）
+python scripts/kukuai_checkin.py --cookies <cookie路径> --out outputs/ --with-expert
+
 # 只签到，不动任务
 python scripts/kukuai_checkin.py --cookies <cookie路径> --only-signin
 
@@ -106,7 +109,7 @@ python scripts/kukuai_checkin.py --cookies <cookie路径> --tasks topic_chat,bro
 | --- | --- | --- | --- |
 | 每日签到 | 1/天 | 积分+10、抽奖+1 | ✅ 主流程 |
 | 与库库聊聊热门话题 | 3/天 | 抽奖+1（积分奖励以页面为准） | ✅ 按剩余次数发对话 |
-| 召唤任意专家并发起对话 | 1 | 抽奖+1 | ✅ 召唤首个专家并对话 |
+| 召唤任意专家并发起对话 | 1 | 抽奖+1 | ⚠️ 默认跳过，加 `--with-expert` 才做 |
 | 浏览10s知识广场 | 1 | 抽奖+1 | ✅ 停留 12s |
 | 邀请新用户下载登录库库PC端 | — | 网盘SVIP天卡、抽奖+1 | ❌ 需真人邀请 |
 | 邀请好友与库库对话 | 10 | 抽奖+1 | ❌ 需真人邀请 |
@@ -123,7 +126,7 @@ python scripts/kukuai_checkin.py --cookies <cookie路径> --tasks topic_chat,bro
 | `btn_done.png` | 已完成 | 跳过并记为完成 |
 | `btn_invite.png` | 需邀请好友 | 跳过（需真人） |
 
-> 「召唤任意专家」会弹《库库 AI 用户协议》确认框，脚本会代点「我已阅读并同意 → 继续使用」，并在 `notes` 里写明。不想让它代点就用 `--tasks` 排除 `expert_chat`。
+> 「召唤任意专家」会弹《库库 AI 用户协议》确认框。**默认不做这一项**，因为它需要勾「我已阅读并同意」，属于本人的同意行为，脚本不该替人做主。本人确认后自己加 `--with-expert` 才会代勾，并在 `notes` 里写明。
 
 任务定义都在 `assets/activity.json`，加任务或改文案只改这个文件。
 
@@ -140,7 +143,7 @@ python scripts/kukuai_checkin.py --cookies <cookie路径> --tasks topic_chat,bro
 1. **iframe 不能直接打开**，直连该地址 body 为空，必须从应用内点签到卡标题。
 2. **任务按钮是图片不是文字**，「去完成」在 DOM 里没有文本节点，只能按 `.pc-kuku-task-card__btn` 的 `src` 判断状态再点 `.pc-kuku-task-card__action`。
 3. **会员弹窗遮罩**：首页加载弹一次、打开任务中心又弹一次，会拦掉真实鼠标点击。脚本会主动关 `[data-testid="activity-dialog-close"]`，仍被拦时退化为 DOM 级 `element.click()`。
-4. **专家任务有协议确认**：点「召唤」后弹《库库 AI 用户协议》，必须勾「我已阅读并同意」再点「继续使用」，否则永远没有输入框。
+4. **专家任务有协议确认**：点「召唤」后弹《库库 AI 用户协议》，必须勾「我已阅读并同意」再点「继续使用」，否则永远没有输入框。**默认跳这项**，加 `--with-expert` 才代勾。
 
 ## 失败处理与风控
 
