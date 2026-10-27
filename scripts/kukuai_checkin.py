@@ -1,24 +1,34 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""库库AI 每日签到 / 每日任务自动化（云端 · 无头模式）· 2026Q4 期。
+"""库库AI 每日签到 / 每日任务自动化（无头 · Cookie 注入）· 2026Q4 期。
 
 适配活动：「每日签到得网盘SVIP月卡 · 做任务抽好礼 赢苹果笔记本」
 活动周期：2026-10-21 ~ 2026-12-04（连签 30 天必得网盘SVIP月卡）
-活动配置：assets/activity.json（换期只改这个文件，脚本无需动）
 
-线上实测结构（2026-10-27 校准）：
-    - 签到卡在工作台左下角，[data-testid="signin-promo"]，未登录标题「登录领取网盘SVIP」、CTA「登录领奖」
-    - 点签到卡标题会打开「任务中心」弹窗，真正的内容在 iframe 里：
-          iframe.signin-center-iframe → kuku.baidu.com/operation/activitys/kukuPcSignAct/main
-      iframe 内才有连签日历、立即签到按钮、6 项任务与「去完成」
-    - 该 iframe 地址不能直接打开（body 为空），必须从应用内点开
-    - 页面加载时会自动弹出活动/会员弹窗遮罩，会拦掉真实鼠标点击，脚本会先关它并退化为 DOM 点击
+════════════════════════════════════════════════════════════════════
+v4 关键变更（2026-10-28）
+────────────────────────────────────────────────────────────────────
+1. 任务进度有两个独立渠道，以前只做了网页端，PC 客户端里仍是 0/3：
+       task_from=kuku_signin_30_web  → 网页端（6 张卡）
+       task_from=kuku_signin_30_pc   → PC 客户端（7 张卡，多「导入网盘/上传本地」）
+   签到是账号级、各端同步；每日任务进度不互通。本版两个渠道都做、都核验。
+
+2. 一切以官方接口为准，不看脚本自述：
+       GET  /api/taskscore/tasklist?task_from=<渠道>
+            → task_finish_count / task_count_max（真实进度）
+       POST /api/genflowpro/activity/taskcomplete?jsToken=...
+            → 上报任务事件（errno=0 才算成功）
+   动作做完 → 上报 → 重新拉接口核验；没到 max 就如实报「未达成」。
+
+3. 真实动作，不是空转：
+   聊天页真发消息、知识广场真停留、专家真召唤、网盘真上传占位文件。
 
 用法:
-    python kukuai_checkin.py --cookies ~/.kukuai/cookies.json --dry-run --probe-entry
     python kukuai_checkin.py --cookies ~/.kukuai/cookies.json
+    python kukuai_checkin.py --cookies ~/.kukuai/cookies.json --dry-run
     python kukuai_checkin.py --cookies ~/.kukuai/cookies.json --only-signin
-    python kukuai_checkin.py --cookies ~/.kukuai/cookies.json --tasks topic_chat,browse_square
+    python kukuai_checkin.py --cookies ~/.kukuai/cookies.json --with-expert
+    python kukuai_checkin.py --cookies ~/.kukuai/cookies.json --channels web
 
 Cookie 支持三种格式（自动识别）:
     1) Playwright/Puppeteer 导出的 JSON 数组: [{"name":"BDUSS","value":"...","domain":".kukuai.cn"}]
@@ -26,8 +36,6 @@ Cookie 支持三种格式（自动识别）:
     3) 原始 Cookie 头字符串: "BDUSS=xxx; STOKEN=yyy"
 
 注意:
-    - 站点是前端渲染 SPA + iframe，按钮文案随时可能改版。首次运行请先 --dry-run 探测结构，
-      必要时改 assets/activity.json 的 selectors / signin_texts / tasks。
     - 遇到验证码 / 滑块 / 风控会立即中止并如实报告，不尝试绕过。
     - 进度日志只写文件（<out>/log/），stdout 仅输出最终 JSON 结果。
 """
@@ -38,12 +46,13 @@ import argparse
 import json
 import os
 import re
+import sys
 import tempfile
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlencode, parse_qs
 
-# 入口必须是 kuku.baidu.com —— 签到活动 iframe 在这个域，
-# www.kukuai.cn 与它登录态互相独立（只在 kukuai.cn 登录会「登录成功但签到卡仍显示登录领奖」）
 HOME_URL = "https://kuku.baidu.com/app"
 CN_TZ = timezone(timedelta(hours=8))
 
@@ -63,11 +72,13 @@ RISK_KEYWORDS = [
 ]
 SUCCESS_KEYWORDS = ["签到成功", "领取成功", "已领取", "积分+10", "签到完成", "已签到"]
 
-# 热门话题任务需要 3 次对话
+# 热门话题任务要发 3 条，多准备几条避免重复
 CHAT_PROMPTS = [
     "最近有哪些值得关注的 AI 行业热门话题？简单说三条就好。",
     "帮我推荐三个适合秋天去的国内旅行目的地，各一句话理由。",
     "用三句话总结一下今年办公类 AI 工具的主要变化。",
+    "周末想在家做一顿简单的饭，给个 30 分钟能搞定的菜单。",
+    "怎么提高远程会议的效率？给三条可执行的建议。",
 ]
 EXPERT_PROMPT = "帮我用一句话给这个方向列一个三条的待办清单。"
 
@@ -186,7 +197,7 @@ def find_cookie_path(explicit: str) -> Path:
 
 
 # --------------------------------------------------------------------------- #
-# 连签状态（跨天持久化，用于断签预警与节点提醒）
+# 连签状态（跨天持久化）
 # --------------------------------------------------------------------------- #
 def load_state(path: Path) -> dict:
     try:
@@ -208,16 +219,19 @@ def save_state(path: Path, state: dict):
 # 主流程
 # --------------------------------------------------------------------------- #
 class Runner:
-    def __init__(self, args, activity: dict, logfile, log):
+    def __init__(self, args, activity: dict, log):
         self.args = args
         self.act = activity
         self.sel = activity.get("selectors", {})
+        self.api = activity.get("api", {})
+        self.channels = activity.get("channels") or [{"key": "kuku_signin_30_web", "label": "网页端"}]
+        self.task_by_key = {t["key"]: t for t in activity.get("tasks", [])}
         self.log = log
-        self.logfile = logfile
         self.page = None
         self.ctx = None
         self._pending_upload = None
-        self.home_state = {}
+        self._action_note = ""
+        self.boards = {}
         self.stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         self.out_dir = Path(args.out).expanduser()
         self.result = {
@@ -225,7 +239,6 @@ class Runner:
             "stage": "init",
             "activity": activity_meta(activity),
             "url": args.url,
-            "activity_url": None,
             "logged_in": None,
             "dry_run": bool(args.dry_run),
             "signed_today": None,
@@ -233,7 +246,8 @@ class Runner:
             "next_node": None,
             "points": None,
             "lottery_chances": None,
-            "tasks": [],
+            "channels": [],
+            "task_board": [],
             "actions": [],
             "warnings": [],
             "notes": [],
@@ -251,129 +265,57 @@ class Runner:
         except Exception as e:
             self.log("screenshot failed: %s" % e)
 
-    def task_frame(self):
-        """任务中心在 iframe 内；iframe 地址形如 .../activitys/kukuPcSignAct/main"""
-        hint = self.act.get("frame_url_hint") or "kukuPcSignAct"
+    def body_text(self) -> str:
         try:
-            for f in self.page.frames:
-                if hint in (f.url or ""):
-                    return f
+            return self.page.inner_text("body") or ""
         except Exception:
-            pass
-        return None
-
-    def root(self):
-        return self.task_frame() or self.page
-
-    def text(self) -> str:
-        chunks = []
-        fr = self.task_frame()
-        if fr is not None:
-            try:
-                chunks.append(fr.inner_text("body") or "")
-            except Exception:
-                pass
-        try:
-            chunks.append(self.page.inner_text("body") or "")
-        except Exception:
-            pass
-        return "\n".join(chunks)
+            return ""
 
     def flat(self) -> str:
-        return re.sub(r"\s+", " ", self.text())
+        return re.sub(r"\s+", " ", self.body_text())
 
-    def loc_text(self, sel) -> str:
-        if not sel:
-            return ""
-        try:
-            loc = self.page.locator(sel)
-            if loc.count():
-                return re.sub(r"\s+", " ", loc.first.inner_text() or "").strip()
-        except Exception:
-            pass
-        return ""
-
-    def loc_click(self, sel, timeout=4000) -> bool:
-        if not sel:
-            return False
-        try:
-            loc = self.page.locator(sel)
-            if not loc.count() or not loc.first.is_visible():
-                return False
+    def dismiss_dialogs(self, rounds=3):
+        """关掉活动推广弹窗（只会挡住点击，不影响账号状态）。"""
+        for _ in range(rounds):
             try:
-                loc.first.click(timeout=timeout)
-            except Exception as e:
-                # 遮罩会吃掉真实鼠标事件，退化为 DOM 级 click
-                self.log("normal click blocked (%s), DOM click: %s" % (str(e)[:60], sel))
-                self.result["notes"].append("遮罩拦截，改用 DOM 级点击: %s" % sel)
-                loc.first.evaluate("e => e.click()")
-            return True
-        except Exception as e:
-            self.log("loc_click %s failed: %s" % (sel, e))
-            return False
-
-    def click_texts(self, texts, exact=False, timeout=4000, max_scan=4):
-        """先在任务中心 iframe 里找，再找主页面；被遮罩拦住时退化 DOM 点击。"""
-        containers = []
-        fr = self.task_frame()
-        if fr is not None:
-            containers.append(fr)
-        containers.append(self.page)
-        for t in texts:
-            for c in containers:
-                for by in ("role", "text"):
-                    try:
-                        loc = (c.get_by_role("button", name=t, exact=exact)
-                               if by == "role" else c.get_by_text(t, exact=exact))
-                        n = min(loc.count(), max_scan)
-                    except Exception:
-                        n = 0
-                    for i in range(n):
-                        el = loc.nth(i)
-                        try:
-                            if not el.is_visible():
-                                continue
-                            try:
-                                el.click(timeout=timeout)
-                            except Exception as ce:
-                                self.log("click '%s' blocked (%s), DOM click" % (t, str(ce)[:60]))
-                                el.evaluate("e => e.click()")
-                            self.log("clicked[%s/%s] %s" % (by, type(c).__name__, t))
-                            return t
-                        except Exception as e:
-                            self.log("click '%s'[%s/%d] failed: %s" % (t, by, i, e))
-                            continue
-        return None
-
-    def dismiss_blockers(self):
-        """关掉挡在页面上的活动/会员弹窗，否则点击会被遮罩吃掉。
-
-        实测：首页加载会弹一次，打开任务中心后可能再弹一次（同一个
-        activity-dialog，底部有个圆形 ✕ = activity-dialog-close）。
-        这里只点明确的关闭按钮，不发 Escape —— Escape 可能把任务中心一起关掉。
-        """
-        closed = []
-        for sel in [self.sel.get("activity_dialog_close"),
-                    '[class*="activity-dialog-close"]']:
-            if not sel:
-                continue
-            try:
-                loc = self.page.locator(sel)
-                if loc.count() and loc.first.is_visible():
-                    try:
-                        loc.first.click(timeout=2000)
-                    except Exception:
-                        loc.first.evaluate("e => e.click()")
-                    closed.append(sel)
-                    self.page.wait_for_timeout(700)
+                n = self.page.evaluate(
+                    """() => { let n = 0;
+                        document.querySelectorAll('[data-testid="activity-dialog-close"]').forEach(e => { e.click(); n++; });
+                        return n; }"""
+                )
             except Exception:
-                pass
-        if closed:
-            self.log("dismissed blockers: %s" % closed)
-            self.result["actions"].append({"closed_overlays": closed})
+                n = 0
+            if not n:
+                break
+            self.log("closed activity dialog x%d" % n)
+            self.page.wait_for_timeout(600)
+
+    def goto_home(self, timeout_ms=60000, attempts=3) -> bool:
+        for i in range(attempts):
+            try:
+                self.page.goto(self.args.url, wait_until="domcontentloaded", timeout=timeout_ms)
+                return True
+            except Exception as e:
+                self.log("goto attempt %d/%d failed: %s" % (i + 1, attempts, str(e)[:90]))
+                self.page.wait_for_timeout(3000)
+        return False
+
+    def wait_ready(self, timeout_s=15) -> bool:
+        for _ in range(timeout_s * 2):
+            t = self.flat()
+            if ("知识广场" in t or "新建任务" in t) and len(t) > 200:
+                return True
+            self.page.wait_for_timeout(500)
+        return False
+
+    def restore_app(self):
+        """回到工作台首页（聊天/广场/网盘路由的起点）。"""
+        if not self.goto_home():
+            raise RuntimeError("打开工作台失败")
+        self.page.wait_for_timeout(4000)
+        self.dismiss_dialogs()
 
     def bind_page_handlers(self):
-        """文件选择器自动接管 + 原生 alert 自动确认，避免 headless 卡死。"""
         def on_filechooser(fc):
             target = self._pending_upload or self.upload_probe_file()
             try:
@@ -396,10 +338,10 @@ class Runner:
             self.log("bind handlers failed: %s" % e)
 
     def upload_probe_file(self) -> Path:
-        path = Path(tempfile.gettempdir()) / ("kukuai-task-%s.txt" % self.stamp)
+        path = Path(tempfile.gettempdir()) / ("库库AI每日任务_%s.txt" % datetime.now(CN_TZ).strftime("%Y%m%d"))
         try:
             path.write_text(
-                "库库AI 每日任务占位文件\n生成时间：%s\n"
+                "库库AI 每日任务占位文件\n生成时间：%s\n可自行删除。\n"
                 % datetime.now(CN_TZ).isoformat(timespec="seconds"),
                 encoding="utf-8",
             )
@@ -409,199 +351,149 @@ class Runner:
 
     # ---------------- 登录态 ----------------
     def detect_login(self, body: str = ""):
-        """先判未登录标记，再判已登录标记。
-
-        实测坑：未登录时首页同样存在 [data-testid="user-profile-trigger"]，
-        早期版本据此误判为已登录。真实信号是文案「登录领网盘会员」
-        「登录领取网盘SVIP」「登录后领取连签奖励」与 CTA「登录领奖」。
-        """
-        flat = re.sub(r"\s+", " ", body or self.text())
-        cta = self.loc_text(self.sel.get("signin_cta"))
-
+        flat = re.sub(r"\s+", " ", body or self.body_text())
         pos = self.act.get("login_positive_markers") or []
-        neg = list(self.act.get("login_negative_markers") or [])
-
+        neg = self.act.get("login_negative_markers") or []
         if any(k and k in flat for k in pos):
             return True
         if any(k and k in flat for k in neg):
             return False
-        # 已登录时签到卡 CTA 是「去抽会员」这类文案，只有含「登录」才是未登录信号
-        if cta and "登录" in cta:
-            return False
-        if cta:
-            return True
-        try:
-            if self.page.locator('[data-testid="user-profile-trigger"] img').count() > 0:
-                return True
-        except Exception:
-            pass
         return None
 
-    # ---------------- 任务中心 ----------------
-    def goto_home(self, timeout_ms=60000, attempts=3) -> bool:
-        """打开入口页并重试。云端到站点的网络偶发超时，单次失败不代表站点挂了。"""
-        for i in range(attempts):
-            try:
-                self.page.goto(self.args.url, wait_until="domcontentloaded", timeout=timeout_ms)
-                return True
-            except Exception as e:
-                self.log("goto attempt %d/%d failed: %s" % (i + 1, attempts, str(e)[:90]))
-                self.page.wait_for_timeout(3000)
-        return False
-
-    def wait_ready(self, timeout_s=15) -> bool:
-        """等工作台真正渲染出来。偶发白屏时主区域是空的，直接点会全部落空。"""
-        for _ in range(timeout_s * 2):
-            t = self.flat()
-            if ("知识广场" in t or "新建任务" in t) and len(t) > 200:
-                return True
-            self.page.wait_for_timeout(500)
-        return False
-
-    def dom_click(self, sel) -> bool:
-        """DOM 级点击：不经命中测试，避免点到叠在上面会跳转的元素。"""
-        if not sel:
-            return False
+    # ---------------- 官方接口（唯一可信来源） ----------------
+    def js_token(self) -> str:
         try:
-            loc = self.page.locator(sel)
-            if not loc.count():
-                return False
-            loc.first.evaluate("e => e.click()")
-            return True
-        except Exception as e:
-            self.log("dom_click %s failed: %s" % (sel, e))
-            return False
-
-    def wait_frame(self, timeout_ms=6000) -> bool:
-        waited = 0
-        while waited <= timeout_ms:
-            if self.task_frame() is not None:
-                return True
-            self.page.wait_for_timeout(500)
-            waited += 500
-        return False
-
-    def reset_home(self) -> bool:
-        """回工作台首页。点错跳到 #/workbench/new-task 时，签到卡在那页不存在。"""
-        if not self.goto_home():
-            return False
-        self.page.wait_for_timeout(4500)
-        self.dismiss_blockers()
-        return True
-
-    def open_task_center(self) -> bool:
-        """打开任务中心（签到按钮与任务卡都在内层 iframe 里）。
-
-        实测不同网络下可用入口不同：本机点签到卡标题能开弹窗，境外机器点标题会
-        跳到「新建任务」空页，横幅才有效。所以每个入口点完都验证 iframe，
-        没出现就回首页换下一个，最多两轮。
-        """
-        if self.task_frame() is not None:
-            return True
-        entries = [
-            ("signin_title", lambda: self.dom_click(self.sel.get("signin_title"))),
-            ("activity_banner", lambda: self.loc_click(self.sel.get("activity_banner"), timeout=4000)),
-            ("signin_card", lambda: self.dom_click(self.sel.get("signin_card"))),
-            ("entry_text", lambda: bool(self.click_texts(self.act.get("entry_texts", []), timeout=4000))),
-        ]
-        for attempt in range(2):
-            if attempt and not self.reset_home():
-                return False
-            for name, action in entries:
-                try:
-                    if not action():
-                        continue
-                except Exception as e:
-                    self.log("entry %s raised: %s" % (name, e))
-                    continue
-                if self.wait_frame(6000):
-                    fr = self.task_frame()
-                    self.result["activity_url"] = fr.url if fr else None
-                    self.result["actions"].append({"opened_task_center": name})
-                    self.log("task center opened via %s" % name)
-                    return True
-                self.log("%s clicked but no iframe, back home" % name)
-                if not self.reset_home():
-                    return False
-        return False
-
-    def ensure_task_center(self) -> bool:
-        if self.task_frame() is not None:
-            # 注意：这里不能调 dismiss_blockers，点 activity-dialog-close 会把刚打开的
-            # 任务中心一起关掉（云端实测）
-            return True
-        self.dismiss_blockers()
-        if self.open_task_center():
-            return True
-        if self.reset_home() and self.open_task_center():
-            return True
-        return False
-
-    def has_activity_markers(self) -> bool:
-        flat = self.flat()
-        markers = self.act.get("activity_markers", [])
-        return sum(1 for k in markers if k in flat) >= 2
-
-    def discover_links(self):
-        found = []
-        try:
-            hrefs = self.page.eval_on_selector_all(
-                "a[href]", "els => els.map(e => e.href).filter(Boolean)"
-            )
+            return self.page.evaluate("() => window.jsToken || ''") or ""
         except Exception:
-            hrefs = []
-        for h in hrefs:
-            if re.search(r"(comp|activity|sign|checkin|task)", h, re.I) and h not in found:
-                found.append(h)
-        fr = self.task_frame()
-        self.result["notes"].append("任务中心 iframe: %s" % (fr.url if fr else "未打开"))
-        self.result["notes"].append("页面候选活动链接: %s" % (found[:8] or "无"))
-        return found
+            return ""
 
-    # ---------------- 状态解析 ----------------
-    def read_state(self) -> dict:
+    def fetch_tasks(self, channel: str) -> dict:
+        path = (self.api.get("tasklist") or "/api/taskscore/tasklist?task_from=") + channel
+        data = self.page.evaluate(
+            """async (url) => {
+                const r = await fetch(url, {credentials: 'include'});
+                try { return await r.json(); } catch (e) { return {errno: -999, errmsg: 'non-json'}; }
+            }""",
+            path,
+        )
+        out = {}
+        if not data or data.get("errno") != 0:
+            self.log("tasklist %s failed: %s" % (channel, str(data)[:160]))
+            return out
+        for t in (data.get("result") or {}).get("list") or []:
+            extra = {}
+            try:
+                extra = json.loads(t.get("task_extra") or "{}")
+            except Exception:
+                pass
+            ttype = extra.get("task_type")
+            try:
+                ttype = int(ttype)
+            except (TypeError, ValueError):
+                ttype = None
+            out[ttype] = {
+                "type": ttype,
+                "name": t.get("task_desc"),
+                "id": t.get("task_id_str"),
+                "finish": int(t.get("task_finish_count") or 0),
+                "max": int(t.get("task_count_max") or 0),
+                "class_id": t.get("task_class_id"),
+            }
+        return out
+
+    def refresh_boards(self) -> dict:
+        self.boards = {}
+        for ch in self.channels:
+            self.boards[ch["key"]] = self.fetch_tasks(ch["key"])
+        return self.boards
+
+    def channel_tasks(self, channel: str, key: str):
+        t = self.task_by_key.get(key) or {}
+        return (self.boards.get(channel) or {}).get(t.get("type_id"))
+
+    def remaining(self, channel: str, key: str) -> int:
+        info = self.channel_tasks(channel, key)
+        if not info:
+            return 0
+        return max(0, info["max"] - info["finish"])
+
+    def report_task(self, channel: str, key: str, session_id: str = "") -> dict:
+        """上报一次任务事件。返回 {errno, msg}。聊天类任务必须带真实 session_id。"""
+        t = self.task_by_key.get(key) or {}
+        info = self.channel_tasks(channel, key)
+        if not info or not info.get("id") or not t.get("event_type"):
+            return {"errno": -1, "msg": "缺少任务ID或事件类型"}
+        q = {
+            "jsToken": self.js_token(),
+            "clienttype": str(self.api.get("clienttype") or 400),
+            "version": self.api.get("version") or "1.6.32",
+            "app_id": str(self.api.get("app_id") or 123971023),
+        }
+        url = (self.api.get("complete") or "/api/genflowpro/activity/taskcomplete") + "?" + urlencode(q)
+        body = {
+            "task_from": channel,
+            "event_type": t["event_type"],
+            "task_id_str": info["id"],
+            "app_id": self.api.get("app_id") or 123971023,
+            "clienttype": self.api.get("clienttype") or 400,
+            "version": self.api.get("version") or "1.6.32",
+        }
+        if session_id:
+            body["session_id"] = session_id
+        res = self.page.evaluate(
+            """async ({url, body}) => {
+                const r = await fetch(url, {method: 'POST', credentials: 'include',
+                    headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+                try { return await r.json(); } catch (e) { return {errno: -999, errmsg: 'non-json ' + r.status}; }
+            }""",
+            {"url": url, "body": body},
+        )
+        errno = (res or {}).get("errno")
+        self.log("report %s/%s -> errno=%s %s" % (channel, key, errno, (res or {}).get("errmsg") or ""))
+        return {"errno": errno, "msg": (res or {}).get("errmsg") or "", "raw": res}
+
+    def report_until_done(self, channel: str, key: str, max_times: int = 6, sessions=None) -> int:
+        """按当前剩余次数上报，直到接口显示完成或失败。返回成功上报次数。"""
+        done = 0
+        sessions = list(sessions or [])
+        for _ in range(max_times):
+            left = self.remaining(channel, key)
+            if left <= 0:
+                break
+            need_sid = bool((self.task_by_key.get(key) or {}).get("event_type", "").endswith("CONVERSATION_TASK")) or \
+                key in ("topic_chat", "expert_chat")
+            sid = ""
+            if need_sid:
+                if not sessions:
+                    self.result["warnings"].append(
+                        "%s · %s 缺少真实会话ID（session_id），接口不接受上报" % (channel, key))
+                    break
+                sid = sessions.pop(0)
+            r = self.report_task(channel, key, sid)
+            if r.get("errno") != 0:
+                self.result["warnings"].append(
+                    "%s · %s 上报失败（errno=%s %s）" % (channel, key, r.get("errno"), r.get("msg")))
+                break
+            done += 1
+            self.page.wait_for_timeout(900)
+            self.boards[channel] = self.fetch_tasks(channel)
+        return done
+
+    # ---------------- 签到（活动页直连，最稳） ----------------
+    def read_streak_points(self) -> dict:
         flat = self.flat()
         st = {}
-
-        # 注意：任务日历里的节点标签就是「连签3天 / 连签7天」，不能拿它当连签天数
-        m = (re.search(r"已连签\s*(\d+)\s*天", flat)
-             or re.search(r"已签\s*(\d+)\s*天", flat)
+        m = (re.search(r"已签\s*(\d+)\s*天", flat)
+             or re.search(r"已连签\s*(\d+)\s*天", flat)
              or re.search(r"已连续签到\s*(\d+)\s*天", flat))
         if m:
             st["streak"] = int(m.group(1))
-
         m = re.search(r"再签\s*(\d+)\s*天", flat)
         if m:
             st["need_for_node"] = int(m.group(1))
-
         m = re.search(r"距离活动结束\s*([0-9]+\s*天[0-9:：\s]*)", flat)
         if m:
             st["countdown"] = m.group(1).strip()
-
-        cta = self.loc_text(self.sel.get("signin_cta"))
-        title = self.loc_text(self.sel.get("signin_title"))
-        btn_txt = self.frame_text(self.sel.get("signin_btn"))
-        st["cta_text"] = cta or None
-        st["card_title"] = title or None
-        st["sign_btn_text"] = btn_txt or None
-        st["card_present"] = bool(cta or title)
-        st["task_center_open"] = self.task_frame() is not None
-
-        signed = any(k in flat for k in (self.act.get("signed_markers") or []))
-        if cta:
-            if any(k in cta for k in ["已签", "明天再来", "明日再来", "已领"]):
-                signed = True
-            elif any(k in cta for k in ["签到", "领奖", "领取", "立即"]):
-                signed = False
-        # 任务中心里的签到按钮文案最权威
-        if btn_txt:
-            if any(k in btn_txt for k in ["已签", "明天再来", "明日再来", "已领"]):
-                signed = True
-            elif any(k in btn_txt for k in ["签到", "领奖", "领取", "立即"]):
-                signed = False
-        st["signed_today"] = signed
-
-        # 积分：优先显式标签；兜底排除「积分+5」「10.28」这类干扰
         m = (re.search(r"(?:积分余额|库库积分余额|我的积分|剩余积分)\s*[:：]?\s*([\d,]+)", flat)
              or re.search(r"(?<![\d.+])([\d,]{2,9})\s*积分(?!\s*[\+＋])", flat))
         if m:
@@ -609,428 +501,554 @@ class Runner:
                 st["points"] = int(m.group(1).replace(",", ""))
             except ValueError:
                 pass
-
         m = (re.search(r"抽奖次数\s*[:：]?\s*(\d+)", flat)
              or re.search(r"(?<![\d.])(\d+)\s*次抽奖", flat)
-             or re.search(r"去抽奖\s*[（(]?\s*(\d+)", flat))
+             or re.search(r"剩\s*(\d+)\s*次", flat))
         if m:
             try:
                 st["lottery"] = int(m.group(1))
             except ValueError:
                 pass
-
-        prog = {}
-        for m in re.finditer(r"([^\s（(]{2,26})\s*[（(]\s*(\d+)\s*/\s*(\d+)\s*[)）]", flat):
-            prog[m.group(1)] = "%s/%s" % (m.group(2), m.group(3))
-        tasks = []
-        for t in self.act.get("tasks", []):
-            name = t["name"]
-            hit = None
-            # 先精确匹配，避免「邀请新用户下载登录库库PC端」与「下载并登录库库PC客户端」互相串
-            for k, v in prog.items():
-                if k == name or k.startswith(name):
-                    hit = v
-                    break
-            if hit is None:
-                for k, v in prog.items():
-                    if name in k:
-                        hit = v
-                        break
-            tasks.append({
-                "key": t["key"],
-                "name": name,
-                "reward": t.get("reward"),
-                "progress": hit,
-                "present": name in flat,
-            })
-        st["tasks"] = tasks
         return st
 
-    # ---------------- 签到 ----------------
-    def do_signin(self) -> bool:
+    def do_signin(self) -> dict:
         self.result["stage"] = "signin"
-        self.dismiss_blockers()
+        url = self.act.get("task_center_url") or "https://kuku.baidu.com/operation/activitys/kukuPcSignAct/main"
+        try:
+            self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
+        except Exception as e:
+            self.log("open activity page failed: %s" % str(e)[:90])
+            self.result["warnings"].append("活动页打不开（%s），签到可能未完成" % str(e)[:60])
+            return {}
+        self.page.wait_for_timeout(4500)
 
-        before = self.read_state()
-        if before.get("signed_today"):
-            self.result["actions"].append({"signin": "already"})
-            self.log("already signed today (btn=%s cta=%s)"
-                     % (before.get("sign_btn_text"), before.get("cta_text")))
-            return True
+        btn_sel = self.sel.get("signin_btn") or "button.pc-sign-btn"
+        st = self.read_streak_points()
 
-        # 优先在任务中心里点（button.pc-sign-btn 才是活动签到按钮）
-        self.ensure_task_center()
-        before = self.read_state()
-        if before.get("signed_today"):
-            self.result["actions"].append({"signin": "already"})
-            self.log("already signed today (btn=%s)" % before.get("sign_btn_text"))
-            return True
+        btn_txt = ""
+        try:
+            loc = self.page.locator(btn_sel)
+            if loc.count():
+                btn_txt = re.sub(r"\s+", " ", loc.first.inner_text() or "").strip()
+        except Exception:
+            pass
+        self.log("signin page: btn=%r streak=%s" % (btn_txt, st.get("streak")))
 
-        hit = None
-        # iframe 里的按钮渲染慢，先轮询等一会儿（云端实测要 3-10 秒）
-        for _ in range(20):
-            fr = self.task_frame()
-            if fr is not None:
-                try:
-                    if fr.locator(self.sel.get("signin_btn") or "button.pc-sign-btn").count():
-                        break
-                except Exception:
-                    pass
-            if any(k in self.flat() for k in (self.act.get("signed_markers") or [])):
-                break
-            self.page.wait_for_timeout(800)
-        fr = self.task_frame()
-        btn_sel = self.sel.get("signin_btn")
-        if fr is not None and btn_sel:
+        already = any(k in btn_txt for k in ("已签", "明天再来", "明日再来", "已领"))
+        if already:
+            self.result["actions"].append({"signin": "already(%s)" % btn_txt})
+        else:
+            hit = False
             try:
-                loc = fr.locator(btn_sel)
+                loc = self.page.locator(btn_sel)
                 if loc.count() and loc.first.is_visible():
-                    txt = (loc.first.inner_text() or "").strip()
-                    # 已签时按钮文案变成「今日已签」，别再点（点了也是空操作，还会误导日志）
-                    if any(k in txt for k in ["已签", "明天再来", "明日再来", "已领"]):
-                        self.result["actions"].append({"signin": "already(btn:%s)" % txt})
-                        self.log("sign button shows already: %s" % txt)
-                        return True
                     try:
                         loc.first.click(timeout=5000)
                     except Exception as ce:
                         self.log("sign btn click blocked (%s), DOM click" % str(ce)[:60])
                         loc.first.evaluate("e => e.click()")
-                    hit = "pc-sign-btn(%s)" % txt
+                    hit = True
+                    self.log("signin clicked(%r)" % btn_txt)
             except Exception as e:
                 self.log("sign btn click failed: %s" % e)
+            if not hit:
+                for t in self.act.get("signin_texts", []):
+                    try:
+                        loc = self.page.get_by_role("button", name=t, exact=True)
+                        if not loc.count():
+                            loc = self.page.get_by_text(t, exact=True)
+                        if loc.count() and loc.first.is_visible():
+                            loc.first.click(timeout=4000)
+                            hit = True
+                            self.log("signin clicked via text %s" % t)
+                            break
+                    except Exception:
+                        continue
+            if not hit:
+                self.result["warnings"].append("未找到签到按钮，页面可能改版，请查看截图")
+                return st
+            self.page.wait_for_timeout(3500)
+            self.dismiss_dialogs()
+            self.result["actions"].append({"signin_clicked": True})
 
-        if not hit:
-            # 已签到时签到按钮可能整个消失，页面只留「今日已签」文案；
-            # 此时不能再按「签到」二字乱点（会点到侧栏导航），直接判已签
-            if any(k in self.flat() for k in (self.act.get("signed_markers") or [])):
-                self.result["actions"].append({"signin": "already(text)"})
-                self.log("sign button absent but signed marker found")
-                return True
-            hit = self.click_texts(self.act.get("signin_texts", []), timeout=5000)
-        if not hit and self.loc_click(self.sel.get("signin_cta"), timeout=5000):
-            hit = "signin_cta"
-        if not hit:
-            self.result["warnings"].append(
-                "未找到签到按钮（任务中心按钮、签到卡 CTA 与文案均未命中），页面可能改版，请查看截图")
-            return False
-
-        self.result["actions"].append({"signin_clicked": hit})
-        self.page.wait_for_timeout(3500)
-        self.dismiss_blockers()
-
-        after = self.read_state()
-        flat = self.flat()
-        ok = bool(after.get("signed_today")) or any(k in flat for k in SUCCESS_KEYWORDS)
-        if not ok:
-            self.result["warnings"].append(
-                "点击签到后未检测到成功标记（按钮=%s），请以截图为准确认"
-                % (after.get("sign_btn_text") or after.get("cta_text") or "未知"))
-        return ok
-
-    def frame_text(self, sel) -> str:
-        fr = self.task_frame()
-        if fr is None or not sel:
-            return ""
+        # 重新读状态确认
+        st2 = self.read_streak_points()
+        for k, v in st2.items():
+            if v is not None:
+                st[k] = v
         try:
-            loc = fr.locator(sel)
+            loc = self.page.locator(btn_sel)
             if loc.count():
-                return re.sub(r"\s+", " ", loc.first.inner_text() or "").strip()
+                st["sign_btn_text"] = re.sub(r"\s+", " ", loc.first.inner_text() or "").strip()
         except Exception:
             pass
-        return ""
+        flat = self.flat()
+        st["signed_today"] = (
+            any(k in (st.get("sign_btn_text") or "") for k in ("已签", "明天再来", "明日再来", "已领"))
+            or any(k in flat for k in SUCCESS_KEYWORDS)
+        )
+        if not st["signed_today"]:
+            self.result["warnings"].append(
+                "点击签到后未检测到「今日已签」（按钮=%r），请以截图复核" % (st.get("sign_btn_text") or ""))
+        self.shot("signed")
+        return st
 
-    def task_card(self, name: str):
-        """按任务名找卡片：.pc-kuku-task-card > .pc-kuku-task-card__title"""
-        fr = self.task_frame()
-        if fr is None:
-            return None
-        sel = self.sel.get("task_card") or ".pc-kuku-task-card"
-        title_sel = self.sel.get("task_card_title") or ".pc-kuku-task-card__title"
-        try:
-            cards = fr.locator(sel)
-            for i in range(cards.count()):
-                card = cards.nth(i)
-                try:
-                    t = (card.locator(title_sel).first.inner_text() or "").strip()
-                except Exception:
-                    continue
-                if name in t or t in name:
-                    return card
-        except Exception as e:
-            self.log("task_card '%s' failed: %s" % (name, e))
-        return None
-
-    def card_state(self, card) -> str:
-        """任务卡右侧是图片按钮：btn_todo=去完成 / btn_invite=邀请好友 / 其它多为已完成。"""
-        btn_sel = self.sel.get("task_card_btn") or ".pc-kuku-task-card__btn"
-        try:
-            img = card.locator(btn_sel).first
-            src = (img.get_attribute("src") or "").lower()
-        except Exception:
-            return "unknown"
-        if not src:
-            return "unknown"
-        if "todo" in src:
-            return "todo"
-        if "invite" in src:
-            return "invite"
-        if any(k in src for k in ("done", "finish", "complete", "received", "signed")):
-            return "done"
-        return "unknown"
-
-    # ---------------- 任务 ----------------
-    def task_action(self, name: str, actions=None):
-        """点任务卡的图片按钮。返回 todo 表示已点，invite/done/unknown 表示跳过。"""
-        card = self.task_card(name)
-        if card is None:
-            self.log("task card not found: %s" % name)
-            return None
-        state = self.card_state(card)
-        self.log("task '%s' card state=%s" % (name, state))
-        if state in ("invite", "done"):
-            return state
-        action_sel = self.sel.get("task_card_action") or ".pc-kuku-task-card__action"
-        for sel in [action_sel, self.sel.get("task_card_btn")]:
-            if not sel:
-                continue
-            try:
-                el = card.locator(sel).first
-                try:
-                    el.click(timeout=4000)
-                except Exception as ce:
-                    self.log("task btn click blocked (%s), DOM click" % str(ce)[:60])
-                    el.evaluate("e => e.click()")
-                self.page.wait_for_timeout(1800)
-                self.log("task action clicked for '%s'" % name)
-                return "clicked"
-            except Exception as e:
-                self.log("task action '%s' via %s failed: %s" % (name, sel, e))
-        return None
-
+    # ---------------- 真实动作 ----------------
     def chat_input(self):
-        for sel in ["textarea", "[contenteditable='true']", "div[role='textbox']",
-                    "input[type='text']"]:
+        sel = self.sel.get("chat_input") or "div.tiptap[contenteditable='true']"
+        for s in [sel, "[contenteditable='true']", "textarea"]:
             try:
-                loc = self.page.locator(sel)
-                if not loc.count():
-                    continue
-                if loc.first.is_visible():
+                loc = self.page.locator(s)
+                if loc.count() and loc.first.is_visible():
                     return loc.first
             except Exception:
                 continue
         return None
 
-    def send_chat(self, prompt: str, wait_ms: int = 12000) -> bool:
+    def chat_rows(self) -> int:
+        try:
+            return self.page.locator(self.sel.get("chat_row") or ".genflow-message-list-row").count()
+        except Exception:
+            return 0
+
+    def last_row_text(self) -> str:
+        try:
+            rows = self.page.locator(self.sel.get("chat_row") or ".genflow-message-list-row")
+            n = rows.count()
+            if n:
+                return rows.nth(n - 1).inner_text() or ""
+        except Exception:
+            pass
+        return ""
+
+    def current_session_id(self) -> str:
+        """聊天会话ID在 URL 最后一个 ? 之后（hash 路由的 query 里）。"""
+        try:
+            u = self.page.url
+        except Exception:
+            return ""
+        if "?" not in u:
+            return ""
+        try:
+            return (parse_qs(u.rsplit("?", 1)[1]).get("session_id") or [""])[0]
+        except Exception:
+            return ""
+
+    def open_new_chat(self) -> bool:
+        """开一个新对话（任务按「会话数」计数，一条消息一个会话最稳）。"""
+        clicked = False
+        try:
+            loc = self.page.get_by_text("新建任务", exact=True)
+            if loc.count():
+                loc.first.click(timeout=3000)
+                clicked = True
+        except Exception as e:
+            self.log("new chat click failed: %s" % str(e)[:60])
+        self.page.wait_for_timeout(2500)
+        if not clicked or self.chat_input() is None:
+            try:
+                self.page.goto(self.args.url + "?r=%d#/workbench/new-task" % int(time.time()),
+                               wait_until="domcontentloaded", timeout=60000)
+            except Exception as e:
+                self.log("open new chat goto failed: %s" % str(e)[:70])
+            self.page.wait_for_timeout(3500)
+        self.dismiss_dialogs()
+        for _ in range(20):
+            if self.chat_input() is not None:
+                return True
+            self.page.wait_for_timeout(600)
+        return False
+
+    def send_chat(self, prompt: str) -> str:
+        """发一条消息：等气泡出现 + 回复稳定，返回该会话 session_id（失败返回空串）。"""
         el = self.chat_input()
         if el is None:
             self.log("chat input not found")
-            return False
+            return ""
+        before = self.chat_rows()
         try:
-            el.click(timeout=4000)
-            el.fill(prompt)
-            self.page.wait_for_timeout(400)
-            self.page.keyboard.press("Enter")
-            self.page.wait_for_timeout(wait_ms)
-            self.result["actions"].append({"chat_sent": prompt[:28]})
-            self.log("chat sent: %s" % prompt[:28])
-            return True
-        except Exception as e:
-            self.log("send_chat failed: %s" % e)
-            return False
-
-    def task_chat(self, task) -> str:
-        """点一次「去完成」进对话页，按任务进度剩余次数连发（不要每条都重开任务中心）。"""
-        if not self.ensure_task_center():
-            return "skipped"
-        limit = task.get("limit") or 1
-        remaining = limit
-        prog = None
-        for t in self.read_state().get("tasks", []):
-            if t.get("key") == task.get("key") and t.get("progress"):
-                prog = t["progress"]
-                break
-        if prog:
+            el.click(timeout=5000)
+        except Exception:
+            self.dismiss_dialogs()
             try:
-                n, m = [int(x) for x in prog.split("/")]
-                remaining = max(0, m - n)
-            except ValueError:
-                remaining = limit
-        if remaining == 0:
-            return "今日已完成(%s)" % prog
+                el.click(timeout=3000)
+            except Exception:
+                el.evaluate("e => e.focus()")
+        try:
+            el.fill(prompt)
+        except Exception as e:
+            self.log("fill failed: %s" % e)
+            try:
+                el.evaluate("e => e.focus()")
+                self.page.keyboard.insert_text(prompt)
+            except Exception:
+                return ""
+        self.page.wait_for_timeout(350)
+        self.page.keyboard.press("Enter")
 
-        res = self.task_action(task["name"])
-        if res == "done":
-            return "今日已完成"
-        if res == "invite":
-            return "需邀请好友，跳过"
-        self.page.wait_for_timeout(2500)
-        done = 0
-        for i in range(remaining):
-            if self.send_chat(CHAT_PROMPTS[i % len(CHAT_PROMPTS)]):
-                done += 1
-            else:
+        appeared = False
+        for _ in range(40):
+            self.page.wait_for_timeout(500)
+            if self.chat_rows() > before:
+                appeared = True
                 break
-        if not done:
-            return "skipped"
-        return "对话 %d 条（原进度 %s）" % (done, prog or "0/%d" % limit)
+            if prompt[:10] in self.flat() and prompt[:10] not in (el.inner_text() or ""):
+                appeared = True
+                break
+        if not appeared:
+            self.log("chat send not confirmed: %s" % prompt[:20])
+            return ""
 
-    def task_expert(self, task) -> str:
-        """点「去完成」→ 跳 #/workbench/expert 专家页 → 点第一张卡的「召唤」→ 发第一句话。"""
-        if not self.ensure_task_center():
-            return "skipped"
-        res = self.task_action(task["name"])
-        if res == "done":
-            return "今日已完成"
-        if res == "invite":
-            return "需邀请好友，跳过"
-        self.page.wait_for_timeout(3500)
+        # 等回复稳定（连续 2 秒文本不再变长）
+        stable = 0
+        last = ""
+        for _ in range(60):
+            self.page.wait_for_timeout(1000)
+            cur = self.last_row_text()
+            if cur and len(cur) == len(last):
+                stable += 1
+                if stable >= 2:
+                    break
+            else:
+                stable = 0
+            last = cur
 
-        summoned = False
-        card_sel = self.sel.get("expert_card") or "article.expert-card"
-        for sel in [card_sel, "[class*='expert-card']", "[class*='expertCard']"]:
+        sid = ""
+        for _ in range(10):
+            sid = self.current_session_id()
+            if sid:
+                break
+            self.page.wait_for_timeout(600)
+        self.log("chat ok sid=%s prompt=%s" % (sid[:10], prompt[:20]))
+        return sid
+
+    def act_chat(self, count: int):
+        """返回 (成功条数, [session_id...])"""
+        self.restore_app()
+        sids = []
+        for i in range(count):
+            if not self.open_new_chat():
+                break
+            sid = self.send_chat(CHAT_PROMPTS[i % len(CHAT_PROMPTS)])
+            if not sid:
+                break
+            sids.append(sid)
+        return len(sids), sids
+
+    def act_square(self, seconds: int = 14):
+        self.restore_app()
+        try:
+            self.page.goto(self.args.url + "#/workbench/knowledge-square",
+                           wait_until="domcontentloaded", timeout=60000)
+        except Exception as e:
+            self.log("goto square failed: %s" % str(e)[:80])
+            return 0, []
+        self.page.wait_for_timeout(3000)
+        for _ in range(3):
+            try:
+                self.page.mouse.wheel(0, 700)
+            except Exception:
+                pass
+            self.page.wait_for_timeout(1500)
+        left = max(0, seconds - 8)
+        if left:
+            self.page.wait_for_timeout(left * 1000)
+        ok = "知识广场" in self.flat() and "knowledge-square" in self.page.url
+        self.log("square visited=%s url=%s" % (ok, self.page.url[-40:]))
+        self.shot("square")
+        return (1, []) if ok else (0, [])
+
+    def act_expert(self):
+        self.restore_app()
+        self.page.goto(self.args.url + "#/workbench/expert", wait_until="domcontentloaded", timeout=60000)
+        self.page.wait_for_timeout(4500)
+        self.dismiss_dialogs()
+
+        clicked = False
+        for sel in [self.sel.get("expert_card") or "article.expert-card",
+                    "[class*='expert-card']", "[class*='expertCard']"]:
             try:
                 card = self.page.locator(sel).first
                 if not card.count():
                     continue
-                btn = card.get_by_role("button", name="召唤")
+                btn = card.get_by_role("button", name=self.sel.get("expert_summon") or "召唤")
                 if btn.count():
                     try:
                         btn.first.click(timeout=4000)
                     except Exception:
                         btn.first.evaluate("e => e.click()")
-                    summoned = True
+                    clicked = True
                     self.log("summoned expert via %s" % sel)
                     break
             except Exception as e:
                 self.log("summon via %s failed: %s" % (sel, e))
-        if not summoned:
-            if self.click_texts(["召唤"], exact=True, timeout=4000):
-                summoned = True
-        if not summoned:
-            return "未找到「召唤」按钮"
+        if not clicked:
+            try:
+                loc = self.page.get_by_role("button", name="召唤")
+                if loc.count():
+                    loc.first.click(timeout=4000)
+                    clicked = True
+            except Exception:
+                pass
+        if not clicked:
+            self.log("no 召唤 button found")
+            return 0, []
 
         self.page.wait_for_timeout(2500)
-        # 召唤会弹「使用提醒 / 用户协议」确认框：勾同意 → 继续使用
+        # 用户协议：只有显式 --with-expert 才代勾
         agreed = False
-        for t in ["我已阅读并同意", "我已阅读并同意本协议", "同意"]:
+        for t in ["我已阅读并同意", "我已阅读并同意本协议"]:
             try:
                 loc = self.page.get_by_text(t, exact=True)
                 if loc.count() and loc.first.is_visible():
+                    if not getattr(self.args, "with_expert", False):
+                        self.log("user agreement dialog requires manual consent")
+                        self._action_note = "首次召唤专家要你本人勾选《库库AI用户协议》；同意过一次后，之后每天都能自动完成"
+                        self.result["notes"].append(self._action_note)
+                        return 0, []
                     loc.first.click(timeout=2500)
                     agreed = True
-                    self.log("agreed expert disclaimer via '%s'" % t)
                     break
             except Exception:
                 continue
         if agreed:
-            self.click_texts(["继续使用", "确定", "确认"], exact=True, timeout=3000)
-            self.page.wait_for_timeout(3000)
-            self.result["notes"].append("已代点专家使用协议的「我已阅读并同意」")
-
-        self.page.wait_for_timeout(1500)
-        ok = self.send_chat(EXPERT_PROMPT)
-        return "已召唤专家并发起对话" if ok else "召唤成功但未找到输入框"
-
-    def task_square(self, task) -> str:
-        if not self.ensure_task_center():
-            return "skipped"
-        before_url = self.page.url
-        res = self.task_action(task["name"])
-        if res == "done":
-            return "今日已完成"
-        if res == "invite":
-            return "需邀请好友，跳过"
-        self.page.wait_for_timeout(2500)
-        navigated = self.page.url != before_url
-        # 「去完成」没带跳转时，点侧栏的「知识广场」
-        if not navigated:
-            for how in ("role", "text", "hash"):
+            for t in ["继续使用", "确定", "确认"]:
                 try:
-                    if how == "role":
-                        loc = self.page.get_by_role("link", name="知识广场")
-                        if not loc.count():
-                            loc = self.page.get_by_role("button", name="知识广场")
-                        if loc.count():
-                            loc.first.click(timeout=3000)
-                    elif how == "text":
-                        self.click_texts(["知识广场"], timeout=3000)
-                    else:
-                        self.page.goto(self.page.url.split("#")[0] + "#/square",
-                                       wait_until="domcontentloaded", timeout=30000)
-                except Exception as e:
-                    self.log("square click via %s failed: %s" % (how, str(e)[:50]))
-                for _ in range(10):
-                    self.page.wait_for_timeout(700)
-                    if self.page.url != before_url:
-                        navigated = True
+                    loc = self.page.get_by_text(t, exact=True)
+                    if loc.count() and loc.first.is_visible():
+                        loc.first.click(timeout=3000)
                         break
-                if navigated:
-                    self.log("square reached via %s: %s" % (how, self.page.url[-40:]))
+                except Exception:
+                    continue
+            self.page.wait_for_timeout(2500)
+            self.result["notes"].append("已代勾《库库AI用户协议》（--with-expert）")
+
+        self.page.wait_for_timeout(1200)
+        sid = self.send_chat(EXPERT_PROMPT)
+        return (1, [sid]) if sid else (0, [])
+
+    def act_upload(self):
+        self.restore_app()
+        self.page.goto(self.args.url + "#/workbench/netdisk", wait_until="domcontentloaded", timeout=60000)
+        self.page.wait_for_timeout(5000)
+        self.dismiss_dialogs()
+        probe = self.upload_probe_file()
+        self._pending_upload = probe
+
+        opened = False
+        try:
+            self.page.locator("button", has_text="上传").first.click(timeout=4000)
+            opened = True
+        except Exception as e:
+            self.log("upload menu click failed: %s" % str(e)[:80])
+        if not opened:
+            try:
+                self.page.get_by_text("上传", exact=True).first.evaluate("e => e.click()")
+                opened = True
+            except Exception:
+                pass
+        if not opened:
+            return 0, []
+        self.page.wait_for_timeout(1200)
+        try:
+            self.page.get_by_text("上传文件", exact=True).first.click(timeout=4000)
+        except Exception:
+            try:
+                self.page.get_by_text("上传文件", exact=True).first.evaluate("e => e.click()")
+            except Exception as e:
+                self.log("upload file menu failed: %s" % str(e)[:80])
+                return 0, []
+        self.page.wait_for_timeout(1500)
+
+        name = probe.name
+        for _ in range(30):
+            self.page.wait_for_timeout(1000)
+            if name in self.flat():
+                self.log("uploaded: %s" % name)
+                self.shot("upload")
+                return 1, []
+        self.log("upload not confirmed (file name not in list)")
+        return 0, []
+
+    def act_import(self):
+        """从百度网盘导入一次文件（需已授权）。默认不做，--with-netdisk 开启。"""
+        self.restore_app()
+        self.page.goto(self.args.url + "#/workbench/netdisk", wait_until="domcontentloaded", timeout=60000)
+        self.page.wait_for_timeout(5000)
+        self.dismiss_dialogs()
+        before = self.flat()
+        try:
+            self.page.locator("button", has_text="导入百度网盘文件").first.click(timeout=4000)
+        except Exception as e:
+            self.log("import click failed: %s" % str(e)[:80])
+            return 0, []
+        self.page.wait_for_timeout(4000)
+        body = self.flat()
+        if "确定授权" in body:
+            if not getattr(self.args, "with_netdisk", False):
+                self._action_note = "导入网盘文件要先授权百度网盘（网页上点一次「确定授权」即可，之后 --with-netdisk 可自动导入）"
+                self.result["notes"].append(self._action_note)
+                return 0, []
+            try:
+                self.page.get_by_text("确定授权", exact=True).first.click(timeout=4000)
+            except Exception as e:
+                self.log("authorize click failed: %s" % str(e)[:80])
+                return 0, []
+            self.page.wait_for_timeout(6000)
+            body = self.flat()
+            if "确定授权" in body:
+                self.log("netdisk authorization not completed")
+                return 0, []
+        # 选择第一个文件
+        picked = False
+        for sel in ["[role='dialog'] li", "[role='dialog'] [class*='file']",
+                    "[class*='file-list'] li", "[class*='fileItem']"]:
+            try:
+                loc = self.page.locator(sel)
+                if loc.count():
+                    loc.first.click(timeout=3000)
+                    picked = True
                     break
-        self.page.wait_for_timeout(12000)  # 任务要求停留 10s
-        self.log("stayed 12s, navigated=%s, url=%s" % (navigated, self.page.url[-40:]))
-        return "已进入知识广场并停留 12s" if navigated else "已等待 12s（未确认已进入知识广场）"
+            except Exception:
+                continue
+        if not picked:
+            self.log("no netdisk file row found")
+            self._action_note = "没找到可导入的百度网盘文件，或授权没走完；先手动点一次「确定授权」再重跑"
+            self.result["notes"].append(self._action_note)
+            return 0, []
+        for t in ["确定", "导入", "开始导入"]:
+            try:
+                loc = self.page.get_by_text(t, exact=True)
+                if loc.count() and loc.first.is_visible():
+                    loc.first.click(timeout=3000)
+                    break
+            except Exception:
+                continue
+        self.page.wait_for_timeout(6000)
+        ok = self.flat() != before
+        self.log("import ok=%s" % ok)
+        return (1, []) if ok else (0, [])
+
+    # ---------------- 任务编排 ----------------
+    def plan_remaining(self, keys) -> dict:
+        """{key: {channel: remaining}}"""
+        out = {}
+        for k in keys:
+            out[k] = {ch["key"]: self.remaining(ch["key"], k) for ch in self.channels}
+        return out
 
     def run_tasks(self):
         self.result["stage"] = "tasks"
         wanted = None
         if self.args.tasks:
             wanted = {x.strip() for x in self.args.tasks.split(",") if x.strip()}
-        handlers = {
-            "chat": self.task_chat,
-            "expert": self.task_expert,
-            "square": self.task_square,
-        }
-        results = []
-        for task in self.act.get("tasks", []):
-            key = task["key"]
-            mode = task.get("auto", "manual")
-            item = {"key": key, "name": task["name"], "auto": mode, "result": None}
-            if key == "expert_chat" and not getattr(self.args, "with_expert", False):
-                # 召唤专家会弹《库库 AI 用户协议》，勾「我已阅读并同意」属于本人同意行为，
-                # 默认不做，必须显式加 --with-expert 才代勾
-                item["result"] = "跳过（需本人在弹窗勾选同意；要自动做加 --with-expert）"
-            elif mode == "manual":
-                item["result"] = "手动（需真人操作，跳过）"
-            elif wanted is not None and key not in wanted:
-                item["result"] = "跳过（未在 --tasks 中指定）"
-            else:
-                fn = handlers.get(mode)
-                try:
-                    item["result"] = fn(task) if fn else "无处理器"
-                except Exception as e:
-                    item["result"] = "异常: %s" % e
-                    self.log("task %s error: %s" % (key, e))
-                self.result["actions"].append({"task": key, "result": item["result"]})
-            results.append(item)
-        self.result["tasks"] = results
 
-    # ---------------- 收尾 ----------------
-    def finish_state(self):
-        st = self.read_state()
-        home = self.home_state or {}
-        # 签到是既成事实：只要任一阶段读到已签，就不能因为后来页面跳走而报未签
-        if home.get("signed_today") or st.get("signed_today"):
-            st["signed_today"] = True
-        if st.get("streak") is None and home.get("streak") is not None:
-            st["streak"] = home["streak"]
-        if st.get("points") is None and home.get("points") is not None:
-            st["points"] = home["points"]
-        self.result["signed_today"] = st.get("signed_today")
-        self.result["streak_days"] = st.get("streak")
-        self.result["points"] = st.get("points")
-        self.result["lottery_chances"] = st.get("lottery")
-        self.result["next_node"] = next_node(self.act, st.get("streak"))
-        if st.get("countdown"):
-            self.result["activity"]["countdown"] = st["countdown"]
-        return st
+        actions = {
+            "chat": ("topic_chat", self.act_chat),
+            "square": ("browse_square", lambda n: self.act_square()),
+            "expert": ("expert_chat", lambda n: self.act_expert()),
+            "upload": ("upload_local", lambda n: self.act_upload()),
+            "import": ("import_netdisk", lambda n: self.act_import()),
+        }
+
+        for mode, (key, fn) in actions.items():
+            task = self.task_by_key.get(key) or {}
+            need_map = {ch["key"]: self.remaining(ch["key"], key) for ch in self.channels}
+            need = max(need_map.values()) if need_map else 0
+            label = task.get("name") or key
+            entry = {"mode": mode, "key": key, "name": label, "need": need_map, "action_units": 0,
+                     "reported": {}, "result": None}
+
+            if wanted is not None and key not in wanted:
+                entry["result"] = "跳过（未在 --tasks 中指定）"
+                self.result["actions"].append(entry)
+                continue
+            if need <= 0:
+                entry["result"] = "已在各端完成"
+                self.result["actions"].append(entry)
+                continue
+            if mode == "upload" and getattr(self.args, "no_upload", False):
+                entry["result"] = "跳过（--no-upload）"
+                self.result["actions"].append(entry)
+                continue
+
+            self._action_note = ""
+
+            # 两轮：动作 → 上报 → 重新核验，不够再来一轮
+            for rnd in range(2):
+                left_now = max(self.remaining(ch["key"], key) for ch in self.channels)
+                if left_now <= 0:
+                    break
+                units, sids = fn(left_now) if mode == "chat" else fn(1)
+                entry["action_units"] += int(units or 0)
+                if not units:
+                    self.log("action %s produced 0 unit, stop" % mode)
+                    if self._action_note:
+                        entry["result"] = "跳过（%s）" % self._action_note
+                    break
+                for ch in self.channels:
+                    ck = ch["key"]
+                    left = self.remaining(ck, key)
+                    if left <= 0:
+                        continue
+                    entry["reported"][ck] = self.report_until_done(
+                        ck, key, min(left, int(units)), sessions=list(sids))
+
+            if entry.get("result"):
+                self.result["actions"].append(entry)
+                continue
+
+            # 核验后写结果
+            bits = []
+            have = []
+            for ch in self.channels:
+                ck = ch["key"]
+                info = self.channel_tasks(ck, key)
+                if not info:
+                    continue
+                have.append(ck)
+                bits.append("%s %s/%s" % (ch.get("label"), info.get("finish", 0), info.get("max", 0)))
+            all_done = all(self.remaining(ck, key) <= 0 for ck in have) if have else False
+            if all_done:
+                entry["result"] = "已完成（%s）" % "、".join(bits)
+            else:
+                extra = ("；%s" % self._action_note) if self._action_note else ""
+                entry["result"] = "未达成（%s）%s" % ("、".join(bits), extra)
+            self.result["actions"].append(entry)
+
+    # ---------------- 收尾核验 ----------------
+    def build_board(self) -> list:
+        board = []
+        absent = []
+        for ch in self.channels:
+            ck, label = ch["key"], ch.get("label") or ch["key"]
+            tasks = self.boards.get(ck) or {}
+            for t in self.act.get("tasks", []):
+                info = tasks.get(t.get("type_id"))
+                if not info:
+                    absent.append("%s无「%s」" % (label, t["name"]))
+                    continue
+                fin, mx = info["finish"], info["max"]
+                state = "已完成" if mx and fin >= mx else ("进行中" if fin else "未完成")
+                board.append({"channel": ck, "label": label, "key": t["key"], "name": t["name"],
+                              "state": state, "finish": fin, "max": mx or t.get("limit")})
+        if absent:
+            self.result["notes"].append("该端没有的任务：" + "；".join(absent))
+        return board
+
+    def summarize_channels(self) -> list:
+        out = []
+        for ch in self.channels:
+            ck, label = ch["key"], ch.get("label") or ch["key"]
+            rows = [b for b in self.result["task_board"] if b["channel"] == ck]
+            done = sum(1 for b in rows if b["state"] == "已完成")
+            out.append({"key": ck, "label": label, "done": done, "total": len(rows)})
+        return out
 
     def check_warnings(self, state_path: Path, st: dict):
         today = today_cn()
         prev = load_state(state_path)
         prev_date = prev.get("last_signed_date")
-
         if prev_date:
             try:
                 pd = parse_iso_date(prev_date)
@@ -1038,26 +1056,19 @@ class Runner:
                 pd = None
             if pd and (today - pd).days > 1:
                 self.result["warnings"].append(
-                    "距上次成功签到已 %d 天，连签可能已中断（规则：断签清零）" % (today - pd).days
-                )
-
-        if not st.get("signed_today"):
+                    "距上次成功签到已 %d 天，连签可能已中断（规则：断签清零）" % (today - pd).days)
+        if not st.get("signed_today") and not getattr(self.args, "no_signin", False):
             self.result["warnings"].append("今日尚未确认签到成功，请人工复核截图")
-
         node = self.result.get("next_node")
         if node and node["need"] <= 1:
             self.result["warnings"].append(
-                "再签 %d 天即可解锁「%s」"
-                % (node["need"], node.get("reward") or ("连签%d天" % node["day"]))
-            )
-
+                "再签 %d 天即可解锁「%s」" % (node["need"], node.get("reward") or ("连签%d天" % node["day"])))
         dl = self.result["activity"].get("days_left")
         if dl is not None:
             if dl < 0:
                 self.result["warnings"].append("活动已结束，脚本配置需更新为新一期")
             elif dl <= 3:
                 self.result["warnings"].append("活动仅剩 %d 天，注意及时领奖" % dl)
-
         if st.get("signed_today"):
             try:
                 save_state(state_path, {
@@ -1079,6 +1090,8 @@ class Runner:
         lines = ["### 库库AI 每日签到 · %s" % today_cn().isoformat(), ""]
         if r.get("error"):
             lines.append("- 状态：❌ %s" % r["error"])
+        elif r.get("dry_run"):
+            lines.append("- 状态：ℹ️ dry-run（只读接口，未签到、未做任务）")
         elif r.get("signed_today"):
             lines.append("- 状态：✅ 今日已签到")
         else:
@@ -1092,14 +1105,51 @@ class Runner:
                          % (n["day"], n["need"], n.get("reward") or "以页面为准"))
         if r.get("points") is not None:
             lines.append("- 库库积分：%s" % r["points"])
-        if r.get("lottery_chances") is not None:
-            lines.append("- 抽奖次数：%s" % r["lottery_chances"])
-        if r.get("tasks"):
+
+        if r.get("task_board"):
             lines.append("")
-            lines.append("| 任务 | 结果 |")
-            lines.append("| --- | --- |")
-            for t in r["tasks"]:
-                lines.append("| %s | %s |" % (t["name"], t.get("result") or "-"))
+            lines.append("**任务实际进度（取自官方接口 tasklist，按渠道分开核验）**")
+            lines.append("")
+            lines.append("| 渠道 | 任务 | 进度 | 状态 |")
+            lines.append("| --- | --- | --- | --- |")
+            for b in r["task_board"]:
+                prog = "%s/%s" % (b["finish"], b["max"]) if b.get("max") is not None else "-"
+                mark = {"已完成": "✅", "进行中": "⏳", "未完成": "⬜", "未出现": "—"}.get(b["state"], "?")
+                lines.append("| %s | %s | %s | %s %s |" % (b["label"], b["name"], prog, mark, b["state"]))
+
+        if r.get("channels"):
+            parts = ["%s %d/%d" % (c["label"], c["done"], c["total"]) for c in r["channels"]]
+            lines.append("")
+            lines.append("- 渠道完成度：%s" % "；".join(parts))
+
+        # 没做的任务 + 原因（写清楚，别让调用方替我圆场）
+        reasons = [a for a in (r.get("actions") or [])
+                   if isinstance(a, dict) and a.get("result")
+                   and ("跳过" in a["result"] or "未达成" in a["result"])]
+        if reasons:
+            lines.append("")
+            lines.append("**没做的任务及原因**")
+            for a in reasons:
+                lines.append("- %s：%s" % (a.get("name") or a.get("key"), a.get("result")))
+
+        manual = [t for t in self.act.get("tasks", []) if t.get("auto") == "manual"]
+        if manual and not self.args.no_tasks:
+            lines.append("")
+            lines.append("**手动项（脚本不代做）**")
+            for t in manual:
+                if "邀请" in t["name"]:
+                    lines.append("- %s：需要真实好友点你的邀请链接，脚本做不了" % t["name"])
+                elif "下载" in t["name"]:
+                    lines.append("- %s：装一次客户端并登录即可（在客户端里本来就没有这张卡）" % t["name"])
+                else:
+                    lines.append("- %s：需本人操作" % t["name"])
+
+        if r.get("notes"):
+            lines.append("")
+            for n in r["notes"]:
+                if n.startswith("该端没有的任务"):
+                    lines.append("- 注：%s" % n)
+
         if r.get("warnings"):
             lines.append("")
             for w in r["warnings"]:
@@ -1111,7 +1161,7 @@ class Runner:
         path = self.out_dir / ("kukuai-summary-%s.md" % self.stamp)
         try:
             path.write_text(text + "\n", encoding="utf-8")
-            self.result["summary"] = str(path)
+            r["summary"] = str(path)
         except Exception as e:
             self.log("write summary failed: %s" % e)
         return text
@@ -1141,7 +1191,6 @@ class Runner:
             self.result["error"] = "Cookie 为空或格式无法识别"
             return self.result
 
-        # 云端镜像常用 /opt/playwright；本机没有该目录时交给 Playwright 默认路径
         if Path("/opt/playwright").exists():
             os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", "/opt/playwright")
         from playwright.sync_api import sync_playwright
@@ -1181,24 +1230,22 @@ class Runner:
             self.shot("goto-failed")
             return
         self.page.wait_for_timeout(4500)
-        self.dismiss_blockers()
-        self.page.wait_for_timeout(800)
+        self.dismiss_dialogs()
 
-        # 偶发白屏：主区域空白时先重载，别急着点击
         for attempt in range(3):
             if self.wait_ready(15):
                 break
             self.log("page not rendered (attempt %d), reload" % (attempt + 1))
             self.goto_home()
             self.page.wait_for_timeout(6000)
-            self.dismiss_blockers()
+            self.dismiss_dialogs()
         else:
             self.result["stage"] = "render"
             self.result["error"] = "页面多次重载仍未渲染出工作台（网络或 CDN 被拦）"
             self.shot("blank")
             return
 
-        body = self.text()
+        body = self.body_text()
         logged_in = self.detect_login(body)
         self.result["logged_in"] = logged_in
         self.log("login state: %s" % logged_in)
@@ -1208,7 +1255,6 @@ class Runner:
             self.result["error"] = "页面出现验证码 / 风控提示，已停止自动操作，请手动完成"
             self.shot("risk")
             return
-
         if logged_in is False:
             self.result["stage"] = "login"
             self.result["error"] = "登录态失效（未检测到已登录），请重新导出 Cookie"
@@ -1217,90 +1263,111 @@ class Runner:
 
         self.shot("home")
 
+        # dry-run：只读接口，看两端进度
         if self.args.dry_run:
             self.result["stage"] = "dry-run"
-            st = self.read_state()
-            self.result["dry_run_state"] = st
+            self.refresh_boards()
+            if any(self.boards.values()):
+                self.result["logged_in"] = True
+            self.result["task_board"] = self.build_board()
+            self.result["channels"] = self.summarize_channels()
+            st = self.read_streak_points()
             self.result["signed_today"] = st.get("signed_today")
-            self.result["notes"].append(
-                "签到卡：标题=%s / CTA=%s / 已签=%s"
-                % (st.get("card_title") or "未找到", st.get("cta_text") or "未找到",
-                   st.get("signed_today")))
-            if self.args.probe_entry:
-                if self.open_task_center():
-                    self.page.wait_for_timeout(1500)
-                    st2 = self.read_state()
-                    self.result["dry_run_state"] = st2
-                    self.result["notes"].append(
-                        "任务中心已打开，识别到任务 %d/%d"
-                        % (sum(1 for t in st2["tasks"] if t["present"]), len(st2["tasks"])))
-                    self.shot("dry-run-task-center")
-                else:
-                    self.result["notes"].append("任务中心未能打开")
-            self.discover_links()
+            self.result["streak_days"] = st.get("streak")
+            self.result["notes"].append("dry-run：仅读取接口，未签到、未做任务")
             self.result["ok"] = True
-            self.result["notes"].append("dry-run：仅探测，未签到、未点任务")
-            self.result["notes"].append("页面文本片段: " + self.flat()[:300])
             return
 
-        # 1) 签到（优先在任务中心内点，卡片 CTA 兜底）
+        # 1) 签到
+        st = {}
         if not self.args.no_signin:
-            self.do_signin()
-            self.shot("signed")
-        self.home_state = self.read_state()
-        self.log("state after signin: %s" % json.dumps(
-            {k: v for k, v in self.home_state.items() if k != "tasks"}, ensure_ascii=False))
+            st = self.do_signin()
+        self.result["signed_today"] = st.get("signed_today")
+        self.result["streak_days"] = st.get("streak")
+        self.result["points"] = st.get("points")
+        self.result["lottery_chances"] = st.get("lottery")
+        self.result["next_node"] = next_node(self.act, st.get("streak"))
+        if st.get("countdown"):
+            self.result["activity"]["countdown"] = st["countdown"]
 
-        # 2) 任务
-        if not self.args.no_tasks:
-            if not self.ensure_task_center():
-                self.result["warnings"].append(
-                    "未能打开任务中心，任务全部跳过（签到不受影响）")
-                self.shot("no-task-center")
+        # 2) 读两渠道进度（唯一可信来源）
+        if not self.goto_home():
+            self.result["warnings"].append("回工作台失败，任务未执行")
+        else:
+            self.page.wait_for_timeout(3500)
+            self.dismiss_dialogs()
+            self.refresh_boards()
+            if not any(self.boards.values()):
+                self.result["warnings"].append("读取任务接口失败，进度无法核验（不建议采信任何完成结论）")
             else:
-                self.shot("task-center")
+                self.result["logged_in"] = True
+
+            # 3) 任务
+            if self.args.no_tasks:
+                self.result["notes"].append("--only-signin：跳过每日任务")
+            elif any(self.boards.values()):
                 if any(k in self.flat() for k in RISK_KEYWORDS):
                     self.result["stage"] = "risk"
-                    self.result["error"] = "任务中心出现验证码 / 风控提示，已停止"
+                    self.result["error"] = "出现验证码 / 风控提示，已停止任务"
                     self.shot("risk")
                     return
                 self.run_tasks()
 
-        # 3) 收尾
+        # 4) 收尾：重新核验
         self.result["stage"] = "finalize"
-        if not self.ensure_task_center():
-            self.goto_home()
-        st = self.finish_state()
+        try:
+            if self.page and not self.page.is_closed():
+                try:
+                    self.page.goto(self.args.url, wait_until="domcontentloaded", timeout=45000)
+                except Exception as e:
+                    self.log("final goto failed: %s" % str(e)[:70])
+                try:
+                    self.page.wait_for_timeout(2500)
+                except Exception:
+                    pass
+                self.dismiss_dialogs()
+                self.refresh_boards()
+        except Exception as e:
+            self.log("final refresh failed: %s" % e)
+        self.result["task_board"] = self.build_board()
+        self.result["channels"] = self.summarize_channels()
+        if st.get("signed_today") is None and self.result["task_board"]:
+            pass
         self.check_warnings(state_path, st)
         self.shot("final")
         self.result["stage"] = "done"
         self.result["ok"] = True
-        self.log("finished ok=True signed=%s streak=%s" % (st.get("signed_today"), st.get("streak")))
+        self.log("finished signed=%s boards=%s" % (
+            st.get("signed_today"),
+            {k: len(v) for k, v in (self.boards or {}).items()}))
         self.write_summary()
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="库库AI 每日签到（云端/无头，Cookie 注入）· 2026Q4 期")
+    ap = argparse.ArgumentParser(description="库库AI 每日签到（无头 · Cookie 注入）· 2026Q4 期")
     ap.add_argument("--cookies", default="", help="Cookie 文件路径；默认依次找 " + "、".join(DEFAULT_COOKIE_PATHS))
     ap.add_argument("--out", default="outputs", help="截图与结果输出目录（默认 outputs）")
-    ap.add_argument("--log", default="", help="日志目录（默认 <out>/log）")
     ap.add_argument("--state", default="", help="连签状态文件（默认 ~/.kukuai/state.json）")
-    ap.add_argument("--url", default=HOME_URL, help="入口地址，默认 https://kuku.baidu.com/app（签到活动所在域；不能填 iframe 地址）")
+    ap.add_argument("--url", default=HOME_URL, help="入口地址，默认 https://kuku.baidu.com/app")
     ap.add_argument("--headful", action="store_true", help="显示浏览器窗口（默认无头）")
-    ap.add_argument("--dry-run", action="store_true", help="只校验登录态并探测结构，不签到不点任务")
-    ap.add_argument("--probe-entry", action="store_true", help="dry-run 时额外打开任务中心并解析状态")
+    ap.add_argument("--dry-run", action="store_true", help="只读接口看进度，不签到不点任务")
     ap.add_argument("--no-signin", action="store_true", help="只清任务，不签到")
     ap.add_argument("--no-tasks", "--only-signin", dest="no_tasks", action="store_true",
                     help="只签到，不清任务")
-    ap.add_argument("--tasks", default="", help="只跑指定任务，逗号分隔: topic_chat,expert_chat,browse_square")
+    ap.add_argument("--tasks", default="", help="只跑指定任务: topic_chat,expert_chat,browse_square,upload_local,import_netdisk")
+    ap.add_argument("--channels", default="", help="只做指定渠道: web,pc（默认两个都做）")
     ap.add_argument("--with-expert", action="store_true",
-                    help="自动完成「召唤任意专家」任务；会代勾《库库 AI 用户协议》，默认不做，需本人明确同意后自行开启")
+                    help="首次召唤专家时代勾《库库 AI 用户协议》并直接完成；不加则首次会提示需你本人勾选一次")
+    ap.add_argument("--with-netdisk", action="store_true",
+                    help="首次导入网盘文件时代点「确定授权」；不加则首次会跳过并提示需手动授权一次")
+    ap.add_argument("--no-upload", action="store_true", help="不上传占位文件到网盘")
     ap.add_argument("--timeout", type=int, default=30, help="单步超时秒数（默认 30）")
+    ap.add_argument("--deadline", type=int, default=1200, help="整体硬超时秒数（默认 1200）")
     args = ap.parse_args(argv)
 
     out_dir = Path(args.out).expanduser()
     out_dir.mkdir(parents=True, exist_ok=True)
-    log_dir = Path(args.log).expanduser() if args.log else (out_dir / "log")
+    log_dir = out_dir / "log"
     log_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     logfile = log_dir / ("kukuai_checkin_%s.log" % stamp)
@@ -1315,9 +1382,43 @@ def main(argv=None):
 
     log("start; out=%s; url=%s; dry_run=%s" % (out_dir, args.url, args.dry_run))
 
+    # 硬超时：页面卡死时也要把结论吐出来，不能静默挂住
+    def _watchdog(seconds, logfile):
+        def kill():
+            try:
+                with open(logfile, "a", encoding="utf-8") as f:
+                    f.write("[watchdog] hard timeout after %ds\n" % seconds)
+            except Exception:
+                pass
+            print(json.dumps({
+                "ok": False, "stage": "timeout",
+                "error": "脚本超过 %d 秒未结束，已强制中止（多为页面卡在加载/网络异常）；日志：%s"
+                         % (seconds, logfile),
+                "log": str(logfile),
+            }, ensure_ascii=False, indent=2))
+            try:
+                sys.stdout.flush()
+            except Exception:
+                pass
+            os._exit(3)
+
+        t = threading.Timer(seconds, kill)
+        t.daemon = True
+        t.start()
+        return t
+
+    _watchdog(int(getattr(args, "deadline", 1200) or 1200), logfile)
+
     try:
         act = load_activity()
-        runner = Runner(args, act, logfile, log)
+        # 渠道过滤
+        if args.channels:
+            wanted = {x.strip().lower() for x in args.channels.split(",") if x.strip()}
+            alias = {"web": "kuku_signin_30_web", "网页端": "kuku_signin_30_web",
+                     "pc": "kuku_signin_30_pc", "客户端": "kuku_signin_30_pc"}
+            keep = {alias.get(w, w) for w in wanted}
+            act["channels"] = [c for c in act.get("channels", []) if c["key"] in keep] or act.get("channels")
+        runner = Runner(args, act, log)
         result = runner.run()
         if result.get("ok") and not result.get("summary"):
             runner.write_summary()
