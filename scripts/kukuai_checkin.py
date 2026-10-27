@@ -54,6 +54,12 @@ from pathlib import Path
 from urllib.parse import urlencode, parse_qs
 
 HOME_URL = "https://kuku.baidu.com/app"
+# 两个前端入口，同一账号、两套 cookie 域：
+#   kuku.baidu.com  ← BDUSS@.baidu.com + STOKEN@.kuku.baidu.com
+#   www.kukuai.cn   ← BDUSS@.kukuai.cn  + STOKEN@.passport.kukuai.cn 等
+# 跑之前先探测哪个域名认这份 cookie，再决定后续所有请求打哪个域。
+CANDIDATE_HOSTS = ["https://kuku.baidu.com", "https://www.kukuai.cn"]
+ACTIVITY_PATH = "/operation/activitys/kukuPcSignAct/main"
 CN_TZ = timezone(timedelta(hours=8))
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
@@ -232,6 +238,8 @@ class Runner:
         self._pending_upload = None
         self._action_note = ""
         self.boards = {}
+        self.base = None          # 解析出来的入口域名，如 https://www.kukuai.cn
+        self.cookies = []
         self.stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         self.out_dir = Path(args.out).expanduser()
         self.result = {
@@ -239,6 +247,7 @@ class Runner:
             "stage": "init",
             "activity": activity_meta(activity),
             "url": args.url,
+            "base_host": None,
             "logged_in": None,
             "dry_run": bool(args.dry_run),
             "signed_today": None,
@@ -290,10 +299,54 @@ class Runner:
             self.log("closed activity dialog x%d" % n)
             self.page.wait_for_timeout(600)
 
+    def cookie_host_hint(self) -> str:
+        """按 cookie 落在哪个域，猜该用哪个入口。"""
+        bduss_dom = ""
+        for c in self.cookies:
+            if str(c.get("name") or "") == "BDUSS":
+                bduss_dom = str(c.get("domain") or "").lstrip(".").lower()
+                break
+        if "kukuai.cn" in bduss_dom:
+            return "https://www.kukuai.cn"
+        if bduss_dom.endswith("baidu.com"):
+            return "https://kuku.baidu.com"
+        doms = [str(c.get("domain") or "").lstrip(".").lower() for c in self.cookies]
+        if any(d == "kukuai.cn" or d.endswith(".kukuai.cn") for d in doms):
+            return "https://www.kukuai.cn"
+        return ""
+
+    def resolve_host(self) -> str:
+        """两个入口的 cookie 互不相认，跑之前先问出哪个域认这份 cookie。"""
+        forced = {"baidu": "https://kuku.baidu.com", "kukuai": "https://www.kukuai.cn"}.get(
+            getattr(self.args, "host", "") or "")
+        if self.args.url:
+            order = [self.args.url.rstrip("/").replace("/app", "")]
+        elif forced:
+            order = [forced]
+        else:
+            hint = self.cookie_host_hint()
+            order = ([hint] if hint else []) + [h for h in CANDIDATE_HOSTS if h != hint]
+        for host in order:
+            try:
+                self.page.goto(host + "/app", wait_until="domcontentloaded", timeout=45000)
+                self.page.wait_for_timeout(3500)
+                errno = self.page.evaluate("""async () => {
+                    const r = await fetch('/api/genflowpro/common/userreport?clienttype=400&app_id=123971023&web=1&channel=chunlei&version=1.6.32', {credentials: 'include'});
+                    try { const d = await r.json(); return d.errno; } catch (e) { return -999; }
+                }""")
+            except Exception as e:
+                self.log("probe %s failed: %s" % (host, str(e)[:60]))
+                continue
+            self.log("probe %s -> errno=%s" % (host, errno))
+            if errno == 0:
+                return host
+        return ""
+
     def goto_home(self, timeout_ms=60000, attempts=3) -> bool:
+        url = (self.base + "/app") if self.base else (self.args.url or HOME_URL)
         for i in range(attempts):
             try:
-                self.page.goto(self.args.url, wait_until="domcontentloaded", timeout=timeout_ms)
+                self.page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
                 return True
             except Exception as e:
                 self.log("goto attempt %d/%d failed: %s" % (i + 1, attempts, str(e)[:90]))
@@ -528,7 +581,7 @@ class Runner:
         except Exception as e:
             self.log("home cta skipped: %s" % str(e)[:60])
 
-        url = self.act.get("task_center_url") or "https://kuku.baidu.com/operation/activitys/kukuPcSignAct/main"
+        url = (self.base or "https://kuku.baidu.com") + ACTIVITY_PATH
         try:
             self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
         except Exception as e:
@@ -662,7 +715,7 @@ class Runner:
         self.page.wait_for_timeout(2500)
         if not clicked or self.chat_input() is None:
             try:
-                self.page.goto(self.args.url + "?r=%d#/workbench/new-task" % int(time.time()),
+                self.page.goto((self.base or self.args.url) + "?r=%d#/workbench/new-task" % int(time.time()),
                                wait_until="domcontentloaded", timeout=60000)
             except Exception as e:
                 self.log("open new chat goto failed: %s" % str(e)[:70])
@@ -753,7 +806,7 @@ class Runner:
     def act_square(self, seconds: int = 14):
         self.restore_app()
         try:
-            self.page.goto(self.args.url + "#/workbench/knowledge-square",
+            self.page.goto((self.base or self.args.url) + "#/workbench/knowledge-square",
                            wait_until="domcontentloaded", timeout=60000)
         except Exception as e:
             self.log("goto square failed: %s" % str(e)[:80])
@@ -775,7 +828,7 @@ class Runner:
 
     def act_expert(self):
         self.restore_app()
-        self.page.goto(self.args.url + "#/workbench/expert", wait_until="domcontentloaded", timeout=60000)
+        self.page.goto((self.base or self.args.url) + "#/workbench/expert", wait_until="domcontentloaded", timeout=60000)
         self.page.wait_for_timeout(4500)
         self.dismiss_dialogs()
 
@@ -844,7 +897,7 @@ class Runner:
 
     def act_upload(self):
         self.restore_app()
-        self.page.goto(self.args.url + "#/workbench/netdisk", wait_until="domcontentloaded", timeout=60000)
+        self.page.goto((self.base or self.args.url) + "#/workbench/netdisk", wait_until="domcontentloaded", timeout=60000)
         self.page.wait_for_timeout(5000)
         self.dismiss_dialogs()
         probe = self.upload_probe_file()
@@ -888,7 +941,7 @@ class Runner:
     def act_import(self):
         """从百度网盘导入一次文件（需已授权）。默认不做，--with-netdisk 开启。"""
         self.restore_app()
-        self.page.goto(self.args.url + "#/workbench/netdisk", wait_until="domcontentloaded", timeout=60000)
+        self.page.goto((self.base or self.args.url) + "#/workbench/netdisk", wait_until="domcontentloaded", timeout=60000)
         self.page.wait_for_timeout(5000)
         self.dismiss_dialogs()
         before = self.flat()
@@ -1200,6 +1253,7 @@ class Runner:
             self.result["error"] = str(e)
             return self.result
         cookies = load_cookies(cookie_path)
+        self.cookies = cookies
         self.log("loaded %d cookies from %s" % (len(cookies), cookie_path))
         if not cookies:
             self.result["stage"] = "cookies"
@@ -1239,6 +1293,25 @@ class Runner:
         return self.result
 
     def _run_steps(self, state_path: Path):
+        self.result["stage"] = "resolve-host"
+        host = self.resolve_host()
+        if not host:
+            self.result["stage"] = "login"
+            self.result["error"] = ("两个入口都判定未登录（kuku.baidu.com / www.kukuai.cn）。"
+                                    "Cookie 可能过期，或登录时没落在活动域上，请重新用 GetCookie.exe 抓一次。")
+            self.result["logged_in"] = False
+            try:
+                self.page.goto(HOME_URL, wait_until="domcontentloaded", timeout=45000)
+                self.page.wait_for_timeout(3000)
+                self.shot("logged-out")
+            except Exception:
+                pass
+            return
+        self.base = host
+        self.result["base_host"] = host
+        self.result["url"] = host + "/app"
+        self.log("resolved host: %s" % host)
+
         self.result["stage"] = "navigate"
         if not self.goto_home():
             self.result["error"] = "打开页面失败（重试 3 次都超时，检查网络或代理）"
@@ -1262,6 +1335,11 @@ class Runner:
 
         body = self.body_text()
         logged_in = self.detect_login(body)
+        if logged_in is not True and self.base:
+            # 入口已经用接口证明登录过；页面文案随版本变，不拿它否掉接口结论
+            if logged_in is False:
+                self.result["notes"].append("页面文案像未登录，但接口校验已登录（以接口为准）")
+            logged_in = True
         self.result["logged_in"] = logged_in
         self.log("login state: %s" % logged_in)
 
@@ -1333,7 +1411,7 @@ class Runner:
         try:
             if self.page and not self.page.is_closed():
                 try:
-                    self.page.goto(self.args.url, wait_until="domcontentloaded", timeout=45000)
+                    self.page.goto(self.base + "/app", wait_until="domcontentloaded", timeout=45000)
                 except Exception as e:
                     self.log("final goto failed: %s" % str(e)[:70])
                 try:
@@ -1363,7 +1441,9 @@ def main(argv=None):
     ap.add_argument("--cookies", default="", help="Cookie 文件路径；默认依次找 " + "、".join(DEFAULT_COOKIE_PATHS))
     ap.add_argument("--out", default="outputs", help="截图与结果输出目录（默认 outputs）")
     ap.add_argument("--state", default="", help="连签状态文件（默认 ~/.kukuai/state.json）")
-    ap.add_argument("--url", default=HOME_URL, help="入口地址，默认 https://kuku.baidu.com/app")
+    ap.add_argument("--url", default="", help="手动指定入口（默认自动在 kuku.baidu.com / www.kukuai.cn 之间探测）")
+    ap.add_argument("--host", default="", choices=["", "baidu", "kukuai"],
+                    help="强制入口域名：baidu=kuku.baidu.com，kukuai=www.kukuai.cn")
     ap.add_argument("--headful", action="store_true", help="显示浏览器窗口（默认无头）")
     ap.add_argument("--dry-run", action="store_true", help="只读接口看进度，不签到不点任务")
     ap.add_argument("--no-signin", action="store_true", help="只清任务，不签到")
@@ -1395,7 +1475,7 @@ def main(argv=None):
         except Exception:
             pass
 
-    log("start; out=%s; url=%s; dry_run=%s" % (out_dir, args.url, args.dry_run))
+    log("start; out=%s; url=%s; dry_run=%s" % (out_dir, args.url or "auto", args.dry_run))
 
     # 硬超时：页面卡死时也要把结论吐出来，不能静默挂住
     def _watchdog(seconds, logfile):
