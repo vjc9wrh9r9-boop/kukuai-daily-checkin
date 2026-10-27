@@ -69,19 +69,33 @@ description: "库库AI（kukuai.cn / kuku.baidu.com，百度文库与百度网�
 
 ## 拿到 Cookie（三种方式，推荐 A）
 
-### A. 双击 exe（最省事，推荐）
+### A. 让 Agent 拉起 exe（推荐，最省事）
 
-| 步骤 | 做什么 |
+**当用户选择「用 Cookie 抓取 exe」这种方式时，Agent 直接打开 exe 让用户自己登录，不要代填账号密码、不要索要密码。**
+
+```bash
+explorer.exe "C:\Users\<用户名>\.workbuddy\skills\kukuai-checkin-tasks\tools\GetCookie.exe"
+```
+
+> 必须用 `explorer.exe` 拉起：Agent 工具会话里直接 exec 的进程会随命令结束被回收，用 explorer 启动才不会被杀。
+
+exe 会做三件事：
+
+| 步骤 | 程序行为 |
 | --- | --- |
-| 1 | 双击 `tools/GetCookie.exe`（首次运行可能被 SmartScreen 拦，点「更多信息 → 仍要运行」） |
-| 2 | 会弹出一个浏览器窗口，自动打开 kukuai.cn |
-| 3 | 用你的百度账号登录（扫码或账号密码都行） |
-| 4 | 登录成功后什么都不用做，工具 2 秒内自动保存并关窗，弹「完成」 |
+| 1 | 用**系统默认浏览器**开一个独立窗口（临时配置，不碰日常数据），自动打开 kukuai.cn |
+| 2 | 等用户自己登录（扫码或账号密码都行） |
+| 3 | 检测到登录后：保存到 `~/.kukuai/cookies.json` + **自动复制到剪贴板** + 弹窗显示「已复制」 |
 
-存到哪里：`C://Users//<你的用户名>//.kukuai//cookies.json`，脚本默认就读这个路径。
+### A2. 用户把 Cookie 粘过来了怎么办
 
-实现方式：用你本机的 Chrome / Edge 开一个**独立临时配置**的窗口，通过 DevTools 协议读出该站 Cookie。
-不碰你日常浏览器的数据，不装扩展，不上传任何东西到网络。源码 `tools/get_cookie.py`，可自行审阅。
+用户从剪贴板粘贴过来的通常是一段 JSON 数组（也可能是 `BDUSS=...; STOKEN=...` 形式）：
+
+1. 先判断格式：以 `[{` 开头 → 当 JSON 解析；含 `BDUSS=` → 当 Cookie 字符串解析
+2. 校验必须含 `BDUSS`，否则提示重新抓
+3. 归一化后写入 `~/.kukuai/cookies.json`（JSON 数组带 `domain`，两个域都保留）
+4. 立刻跑一次 `--dry-run` 验证登录态，再正式执行
+5. **不要**在回复里回显 Cookie 明文
 
 ### B. 浏览器开发者工具（没有 exe 时用）
 
