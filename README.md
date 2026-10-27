@@ -70,7 +70,7 @@ python -m playwright install chromium
 > 同一账号、同一份进度，脚本会自动选对入口（`--dry-run` 的 `base_host` 可查）。
 
 > 万一只有技能目录、没有 exe：
-> <https://gh-proxy.com/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.4/GetCookie.exe>
+> <https://gh-proxy.com/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.5/GetCookie.exe>
 > （公开链接，不用登录 GitHub）
 
 ## 用法
