@@ -41,14 +41,14 @@ HOST = "127.0.0.1"
 # 真正需要登录的是「工作台」，它用 passport.kukuai.cn 自己的一套会话，
 # cookie 落在 .kukuai.cn 域。kuku.baidu.com/home 只是下载落地页，
 # 在那页登录只会写 .baidu.com 的 cookie，签到脚本用不了（实测）。
-LOGIN_URL = "https://www.kukuai.cn/"
+LOGIN_URL = "https://kuku.baidu.com/app"
 # 用户的邀请链接：作为副标签打开，保留邀请记录，不作为登录页
 INVITE_URL = ("https://kuku.baidu.com/home?invite_code=XUU5A9AB&task_type=252"
               "&task_id_str=5259635171792479&task_from=kuku_signin_30_pc")
 DEFAULT_URL = LOGIN_URL
-# 判定登录：BDUSS 必须落在 kukuai.cn 域（App 的会话）
+# 判定登录：以活动页所在域（kuku.baidu.com）的接口为准
 LOGIN_COOKIE_NAMES = ("BDUSS",)
-LOGIN_COOKIE_DOMAINS = ("kukuai.cn",)
+LOGIN_COOKIE_DOMAINS = ("kukuai.cn", "baidu.com")
 DEFAULT_OUT = "~/.kukuai/cookies.json"
 # 读 cookie 时按这些地址查询（跨域登录都要覆盖）
 COOKIE_HOSTS = ["https://www.kukuai.cn/", "https://kuku.baidu.com/", "https://baidu.com/",
@@ -363,10 +363,9 @@ def normalize(cookies):
 
 
 def has_login(cookies):
-    """登录判定：BDUSS 必须挂在 kukuai.cn 域上。
+    """登录判定：BDUSS 要落在 kukuai.cn / baidu.com 域上。
 
-    只判断「有没有 BDUSS」会误报：在 kuku.baidu.com 下载页登录也会给 BDUSS，
-    但那是 .baidu.com 的，工作台不认，签到脚本也用不了。
+    这只是「初步命中」，最终是否可用由 app_login_state() 调接口确认。
     """
     for c in cookies:
         if c.get("name") in LOGIN_COOKIE_NAMES:
@@ -381,7 +380,7 @@ def has_baidu_login(cookies):
     return any(c.get("name") == "BDUSS" for c in cookies)
 
 
-USERREPORT_API = ("https://www.kukuai.cn/api/genflowpro/common/userreport"
+USERREPORT_API = ("https://kuku.baidu.com/api/genflowpro/common/userreport"
                    "?clienttype=400&app_id=123971023&web=1&channel=chunlei&version=1.6.32")
 
 
@@ -398,7 +397,8 @@ def app_login_state(port):
     page = None
     for t in targets:
         if t.get("type") == "page" and t.get("webSocketDebuggerUrl") \
-                and "kukuai.cn" in (t.get("url") or ""):
+                and ("kuku.baidu.com" in (t.get("url") or "")
+                     or "kukuai.cn" in (t.get("url") or "")):
             page = t
             break
     if not page:
