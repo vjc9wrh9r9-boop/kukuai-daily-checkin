@@ -3,7 +3,7 @@
   抓 Cookie 用 tools\GetCookie.exe，两个按钮就够，不要手动按 F12 复制。
   （手动复制经常漏 STOKEN，漏了必然登录失败）
 
-库库AI 签到 + 每日任务 v4.0.3
+库库AI 签到 + 每日任务 v4.0.4
 
 用你自己的 Cookie，在无头浏览器里完成：签到、聊热门话题、逛 10 秒知识广场、
 召唤专家、上传一次本地文件（可选）、导入一次网盘文件（需先授权）。
@@ -19,52 +19,34 @@
     macOS:    ~/.workbuddy/skills/
   路径只用英文数字，中文目录可能触发某些 Agent 的技能路径保护。
 
-二、拿到 Cookie（两个按钮，最省事）
-  包里不带 exe（11MB，云端 Agent 也跑不了 Windows GUI）。下载这一个文件，双击即用、不用解压、不用登录：
-    镜像1  https://gh-proxy.com/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe
-    镜像2  https://ghfast.top/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe
-    镜像3  https://ghproxy.net/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe
-    直链   https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe
-    （打不开就换下一条；本机 Agent 可以执行 python tools\fetch_tool.py 自动换源下载）
+二、拿到 Cookie（双击工具，两步搞定）
+  这个文件夹里除了技能目录，还有一个 GetCookie-v3.8.3.exe，双击就能用（不用装、不用登录）。
 
-    打开后是一个小窗口，不会自己开网页，只有两个按钮：
+    1) 解压收到的压缩包，找到 GetCookie-v3.8.3.exe，双击打开
+    2) 点蓝色按钮「① 打开网页登录库库AI，抓取 Cookie」
+       → 会用你系统默认浏览器弹一个窗口（独立临时配置，不动日常浏览器数据）
+       → 在网页里点左下角签到卡上的「登录领奖」，用百度账号扫码或密码登录
+       → 登录成功后工具会自动抓取，状态条变绿并标注「登录域」
+    3) 点「② 复制已抓取的 Cookie」→ 回到对话里 Ctrl+V 粘贴给 AI
 
-    ① 打开网页登录库库AI，抓取 Cookie
-       → 用你系统的默认浏览器弹一个窗口（独立临时配置，不动日常浏览器数据）
-       → 浏览器会停在网页版工作台（kuku.baidu.com/app 或 www.kukuai.cn/app）
-       → 登录入口：点左下角签到卡上的「登录领奖」（或右上角头像），用百度账号扫码或密码登录
-       → 两个入口都算数：kuku.baidu.com 域存 2 条，www.kukuai.cn 域存 14 条，同一账号、同一份进度
-       → 登录成功后会调工作台接口复核，确认已登录才保存，状态条变绿并标注「登录域」
-       → 复核没过会变红并说明原因
-
-    ② 复制已抓取的 Cookie
-       → 点一下就复制到剪贴板，状态条显示「已复制 N 条，去 Agent 对话里 Ctrl+V」
-       → 然后到 Agent 对话里粘贴发送即可
-
-    Cookie 同时存到 C:\Users\<用户名>\.kukuai\cookies.json（脚本默认读这里）。
-    首次运行可能被 SmartScreen 拦：点「更多信息」→「仍要运行」。
-    工具只读取它自己那个临时浏览器窗口的 Cookie，不碰你日常浏览器的数据，不上传任何东西。
-
-  没有 exe 或想手工做：
-    1. 浏览器登录 https://kuku.baidu.com/home（或 https://www.kukuai.cn/）
-    2. F12 → Application → Cookies → 对应的域
-    3. 复制 BDUSS 的值（HttpOnly，只能在这里复制；有 STOKEN 就一起复制）
-    4. 存成 C:\Users\<用户名>\.kukuai\cookies.json：
-         {"BDUSS":"你的值","STOKEN":"你的值"}
-
-  Cookie 等同账号密码，只存本机，别发给任何人。
+  说明：
+    · 抓到 2 条或 14 条都正常（2 条=登录在 kuku.baidu.com，14 条=登录在 www.kukuai.cn，
+      同一账号、同一份进度，脚本会自动选对入口）
+    · 工具是自制小工具（不是百度官方），源码在 tools/get_cookie.py，不装扩展、不上传数据
+    · Cookie 存在 C:\Users\<用户名>\.kukuai\cookies.json
+    · 首次运行被 SmartScreen 拦：点「更多信息」→「仍要运行」
 
 三、运行
   pip install playwright
   python -m playwright install chromium
 
   # 1) 先探测，不签到不点任务
-  python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --dry-run --probe-entry
+  python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --dry-run
   # 2) 正式跑
   python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json
   # 3) 只签到
   python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --only-signin
-  # 4) 连专家任务也做（会代勾用户协议，本人确认后用）
+  # 4) 连专家任务也做（首次会代勾用户协议，本人确认后再加）
   python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --with-expert
 
 四、它到底动了什么
