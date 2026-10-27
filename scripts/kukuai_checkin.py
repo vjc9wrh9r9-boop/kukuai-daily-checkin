@@ -513,6 +513,21 @@ class Runner:
 
     def do_signin(self) -> dict:
         self.result["stage"] = "signin"
+
+        # 先在首页签到卡上点一次（卡片偶尔不渲染，失败不影响后面的活动页直点）
+        try:
+            cta = self.page.locator(self.sel.get("signin_cta") or '[data-testid="signin-promo-cta"]')
+            if cta.count() and cta.first.is_visible():
+                txt = (cta.first.inner_text() or "").strip()
+                if (any(k in txt for k in ("签到", "领奖", "领取", "立即"))
+                        and not any(k in txt for k in ("已签", "明天", "明日"))):
+                    cta.first.click(timeout=3000)
+                    self.log("home cta clicked: %r" % txt)
+                    self.result["actions"].append({"signin": "home_cta(%s)" % txt})
+                    self.page.wait_for_timeout(3000)
+        except Exception as e:
+            self.log("home cta skipped: %s" % str(e)[:60])
+
         url = self.act.get("task_center_url") or "https://kuku.baidu.com/operation/activitys/kukuPcSignAct/main"
         try:
             self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
