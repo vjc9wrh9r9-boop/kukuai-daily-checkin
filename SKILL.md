@@ -1,7 +1,7 @@
 ---
 name: kukuai-checkin-tasks
 display_name: "库库AI 签到 + 每日任务"
-version: "4.0.2"
+version: "4.0.3"
 updated: "2026-10-28"
 activity: "每日签到得网盘SVIP月卡 · 做任务抽好礼 赢苹果笔记本（2026-10-21 ~ 2026-12-04）"
 description: "库库AI（kuku.baidu.com / kukuai.cn，百度 AI 办公智能体）每日签到与每日任务的自动化。适配 2026-10-21 起的新一期活动「每日签到得网盘SVIP月卡」，连签 3/7/15/30 天解锁网盘 SVIP，做任务攒积分与抽奖次数。**任务进度分「网页端」和「PC 客户端」两套独立记录，脚本两端都做、都核验**。当用户提出「帮我签到」「自动签到」「领一下库库AI的每日积分」「完成库库AI每日任务」「今天签到成功没 / 连签几天了」等诉求时使用。本 Skill 自带 Cookie 抓取工具 tools/GetCookie.exe（双击即用），不要让用户手动按 F12。"
@@ -34,43 +34,43 @@ description: "库库AI（kuku.baidu.com / kukuai.cn，百度 AI 办公智能体�
 
 v4 会两个渠道都做、都上报、都核验，所以 `task_board` 里会同时出现网页端和 PC 客户端的行。
 
-> ## ⛔ 第一步：先启动 Cookie 工具（不可跳过）
+> ## ⛔ 第一步：先让用户跑 Cookie 工具（不可跳过）
 >
-> 本 Skill **自带抓取工具** `tools/GetCookie.exe`。用户点两下按钮就能拿到 Cookie。
-> **不要**让用户按 F12 手动复制：大多数人不会用开发者工具，而且手动复制常漏 `STOKEN`。
+> 抓 Cookie 只需要一个**单文件 exe**（约 11MB，双击即用，不装扩展）。**技能包里不再带这个 exe**
+> —— 它是 Windows GUI，云端 Agent 下载了也跑不了，带在包里只会让 11MB 的 zip 传不动、还容易留旧副本。
 >
-> ### 情况 0：Agent 在云端/沙箱里，拿不到 `tools/GetCookie.exe`（最常见）
+> **下载地址（唯一来源，版本固定）**：
 >
-> 技能包是 zip，Agent 通常**解不开、也执行不了里面的 exe**。这种情况**别让用户解压**，
-> 直接把下面这个**单文件下载链接**发给他（点开就下载，双击就能跑，不用解压）：
+> > https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe
 >
-> > https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.1/GetCookie.exe
+> ### 情况 0：Agent 在云端 / 沙箱（最常见）→ 只发链接
 >
-> 附一句用法：「下载后双击 → 点 ① → 在打开的网页里点左下角签到卡『登录领奖』登录 → 状态条变绿后点 ② → 粘贴给我」。
+> 你执行不了 Windows exe。**别让用户解压任何 zip**，直接把上面那个链接发给他：
 >
-> **工具路径**：本地安装时在 `<Skill目录>/tools/GetCookie.exe`。
+> > 「下载这个 exe（不用解压）→ 双击 → 点 ① → 在打开的网页里点左下角签到卡『登录领奖』登录
+> > → 状态条变绿后点 ② → 把复制到的内容粘贴给我」
 >
-> ### 情况 A：你能执行命令 → 直接拉起来
+> ### 情况 A：本机是 Windows 且你能执行命令 → 先取工具再拉起
 >
 > ```bash
+> python "<Skill目录>/tools/fetch_tool.py"      # 没有 exe 时会自动下到 tools/，已存在则跳过
 > explorer.exe "<Skill目录>/tools/GetCookie.exe"
 > ```
 >
 > 拉起后告诉用户：
 > 「在弹出的窗口点 **① 打开网页登录库库AI** → 登录 → 状态条变绿 → 点 **② 复制已抓取的 Cookie** → 粘贴给我」
 >
-> ### 情况 B：你启动不了 GUI（沙箱 / 无桌面 / 命令被拒）→ 让用户双击
+> ### 情况 B：你启动不了 GUI（无桌面 / 命令被拒）→ 让用户自己双击
 >
-> 仍然不要退回 F12。把下面这段发给用户（替换成真实路径）：
+> 仍然不要退回 F12。发这段（把链接换成上面的真实地址）：
 >
-> > 双击这个文件：`<Skill目录>\tools\GetCookie.exe`
-> > 点「① 打开网页登录库库AI，抓取 Cookie」→ 在弹出的浏览器里登录
-> > → 状态条变绿（提示"抓取成功"）后，点「② 复制已抓取的 Cookie」
-> > → 直接粘贴发给我
+> > 下载：https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe
+> > 双击运行 → 点「① 打开网页登录库库AI，抓取 Cookie」→ 在弹出的浏览器里登录
+> > → 状态条变绿后点「② 复制已抓取的 Cookie」→ 粘贴发给我
 >
 > ### 情况 C：用户说「我不会 / 有没有工具」
 >
-> 直接回答「有工具」，给出上面的路径与两个按钮的用法。**不要再讲 F12。**
+> 直接回答「有工具，就一个 exe」，给链接与两个按钮的用法。**不要再讲 F12。**
 >
 > ### ❌ 明确禁止
 >
