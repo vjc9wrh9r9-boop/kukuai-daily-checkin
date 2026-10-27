@@ -60,13 +60,20 @@ python -m playwright install chromium
 
 ## 拿 Cookie（用自带工具，别按 F12）
 
-双击 `tools/GetCookie.exe`：
+**不想解压 / Agent 打不开 zip**：直接下这一个文件（双击即用，不用解压）
+<https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.1/GetCookie.exe>
+
+或者双击 `tools/GetCookie.exe`：
 
 1. 点 **① 打开网页登录库库AI，抓取 Cookie** → 用系统默认浏览器打开工作台 → 点左下角签到卡「登录领奖」登录
 2. 状态条变绿（工作台已确认登录）→ 点 **② 复制已抓取的 Cookie**
 3. 粘贴给 AI，或让脚本自己用（默认存 `~/.kukuai/cookies.json`，只有 `BDUSS` + `STOKEN` 两条）
 
 > 手动 F12 复制经常漏 `STOKEN`，漏了必然登录失败。
+
+> **状态条显示「已复制 2 条」才是对的**。如果出现「已复制 14 条」，说明登录写到了 `.kukuai.cn`
+> 域（活动页不认），工具会提示你切到 `kuku.baidu.com/app` 标签页点「登录领奖」重登。
+> v3.8.0 起接口不说「已登录」就不会保存。
 
 ## 用法
 
