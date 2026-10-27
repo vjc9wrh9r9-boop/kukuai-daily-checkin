@@ -53,7 +53,7 @@ description: "库库AI（kukuai.cn / kuku.baidu.com，百度文库与百度网�
 
 ## 🔰 快速上手
 
-1. **导出 Cookie**：浏览器登录 `https://www.kukuai.cn/`（或 `https://kuku.baidu.com`），按 `references/cloud-mode.md` 导出（JSON 或字符串）。
+1. **拿到 Cookie**：双击 `tools/GetCookie.exe` → 弹出的窗口里登录 → 自动存到 `~/.kukuai/cookies.json`。三种方式见下节。
 2. **首次务必 dry-run**：`python scripts/kukuai_checkin.py --cookies <路径> --out outputs/ --dry-run --probe-entry`
 3. **正式签到**：`python scripts/kukuai_checkin.py --cookies <路径> --out outputs/`
 4. **要每天自动**：说「帮我建每天自动签到」，让 Agent 建一个**它自己的定时任务 / 自动化任务**（见「定时任务」）。注意是 Agent 内置的自动化，不是 Windows 计划任务 / crontab。
@@ -67,9 +67,44 @@ description: "库库AI（kukuai.cn / kuku.baidu.com，百度文库与百度网�
 - 「今天签到成功没？连签几天了？还差几天拿月卡？」
 - 「把库库AI的每日任务也顺手清一下」
 
+## 拿到 Cookie（三种方式，推荐 A）
+
+### A. 双击 exe（最省事，推荐）
+
+| 步骤 | 做什么 |
+| --- | --- |
+| 1 | 双击 `tools/GetCookie.exe`（首次运行可能被 SmartScreen 拦，点「更多信息 → 仍要运行」） |
+| 2 | 会弹出一个浏览器窗口，自动打开 kukuai.cn |
+| 3 | 用你的百度账号登录（扫码或账号密码都行） |
+| 4 | 登录成功后什么都不用做，工具 2 秒内自动保存并关窗，弹「完成」 |
+
+存到哪里：`C://Users//<你的用户名>//.kukuai//cookies.json`，脚本默认就读这个路径。
+
+实现方式：用你本机的 Chrome / Edge 开一个**独立临时配置**的窗口，通过 DevTools 协议读出该站 Cookie。
+不碰你日常浏览器的数据，不装扩展，不上传任何东西到网络。源码 `tools/get_cookie.py`，可自行审阅。
+
+### B. 浏览器开发者工具（没有 exe 时用）
+
+1. Chrome / Edge 登录 `https://www.kukuai.cn/`
+2. `F12` → Application（应用）→ Cookies → `https://www.kukuai.cn`
+3. 复制 `BDUSS`、`STOKEN` 的值（`BDUSS` 是 HttpOnly，只能在面板里复制）
+4. 存成 `~/.kukuai/cookies.json`：
+
+```json
+{"BDUSS": "你的值", "STOKEN": "你的值"}
+```
+
+### C. 直接把 Cookie 粘给 Agent
+
+把 `BDUSS=...; STOKEN=...` 粘进对话，让 Agent 帮你写入 `~/.kukuai/cookies.json`。
+Agent 落盘前会先清理空条目、归一化域名。
+
+> 活动内容在 `kuku.baidu.com` 域下，只导 `.kukuai.cn` 有时会判未登录。
+> 用 A 方式会自动把两个域都抓下来，最稳。
+
 ## 前置条件
 
-1. **已导出登录 Cookie**：库库AI 用百度账号登录；签到依赖登录态（格式见 `assets/cookie.example.json`）。
+1. **已拿到登录 Cookie**：库库AI 用百度账号登录；签到依赖登录态（方式见上节，格式见 `assets/cookie.example.json`）。
 2. **Cookie 未过期**：过期会报「登录态失效」，重新导出即可。
 3. **不要索取账号密码**：只用 Cookie。除非用户主动明确提供，否则不要代填密码或验证码。
 
