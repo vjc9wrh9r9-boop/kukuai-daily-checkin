@@ -751,6 +751,11 @@ class CookieApp:
                     lost = 0
                 cookies = read_cookies(self.port)
                 if cookies and has_login(cookies):
+                    # 刚登录的一瞬间可能只写好了 BDUSS，稍等一下再读，把 STOKEN 等一并带上
+                    time.sleep(1.2)
+                    again = read_cookies(self.port)
+                    if again and has_login(again):
+                        cookies = again
                     data, payload = save_cookies(cookies, self.out_path)
                     if not data:
                         self._ui(self._fail, "读到了 Cookie 但没有 BDUSS，可能还没登录完成，重试一次。")
