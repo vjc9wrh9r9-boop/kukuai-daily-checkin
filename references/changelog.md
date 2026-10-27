@@ -1,5 +1,34 @@
 # 版本变更记录
 
+## v4.0.1 — 2026-10-28（Cookie 工具：登错域不再假装成功）
+
+**现象**：用户用 `GetCookie.exe` 抓到 **14 条** Cookie（2209 字符），工具显示「抓取成功」，
+但拿这 14 条跑脚本直接 `登录态失效`。
+
+**根因**（看抓到的 cookie 清单即可确认）：
+
+| 实际抓到 | 应该抓到 |
+| --- | --- |
+| `BDUSS@.kukuai.cn`、`STOKEN@.passport.kukuai.cn`、`PTOKEN@.passport.kukuai.cn` … | `BDUSS@.baidu.com` + `STOKEN@.kuku.baidu.com` |
+
+登录写在了 `.kukuai.cn` 域（在 www.kukuai.cn / 邀请页那个标签登的），活动页在 `kuku.baidu.com`，不认。
+旧版三个漏洞叠加成「假成功」：
+
+1. `has_login()` 把 `.kukuai.cn` 的 BDUSS 也算已登录 → 误判
+2. `app_login_state()` 返回 `None`（接口没响应）时代码直接走到保存 → 没验证也存
+3. `pick_needed()` 找不到必需两项就回退「保存全部」，UI 只说「已复制 14 条」，没解释
+
+**修复**：
+
+- 只认工作台接口 `userreport`：`True` 才保存，`False`/`None` 一律继续等
+- `has_login()` 只认 `.baidu.com` 的 BDUSS
+- 识别到「只有 kukuai.cn 的 BDUSS」时，状态条直接提示「切到 `kuku.baidu.com/app` 标签页点『登录领奖』重登」
+- 超时提示带上域诊断信息
+- 版本号 `2.0` → `3.8.0`（窗口标题可见，便于区分旧包）
+
+**另外**：Release 里单独放了 `GetCookie.exe`（不进 zip）。Agent 在云端解不开技能包时，
+把单文件链接发给用户即可，不用解压。
+
 ## v4.0.0 — 2026-10-28（双渠道任务 + 接口核验，修掉「说完成了其实没完成」）
 
 **现象**：用户在库库AI里跑完 Skill，Agent 汇报「已发 3 条、知识广场已停留」，
