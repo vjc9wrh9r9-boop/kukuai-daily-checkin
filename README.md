@@ -21,7 +21,7 @@
 | --- | --- | --- |
 | 每日签到 | 1/天 | ✅ |
 | 与库库聊聊热门话题 | 3/天 | ✅ 按剩余次数发对话 |
-| 召唤任意专家并发起对话 | 1 | ✅ 自动召唤首个专家 |
+| 召唤任意专家并发起对话 | 1 | ⚠️ 默认跳过，需 `--with-expert` |
 | 浏览 10s 知识广场 | 1 | ✅ 停留 12 秒 |
 | 邀请新用户下载登录库库PC端 | — | ❌ 需真人邀请 |
 | 邀请好友与库库对话 | 10 | ❌ 需真人邀请 |
@@ -97,7 +97,7 @@ python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --tasks topic_
 2. **「去完成」是图片按钮** —— `<img class="pc-kuku-task-card__btn" src="btn_todo.png">`，DOM 里没有文字节点，只能靠图片名判状态（`btn_todo` / `btn_done` / `btn_invite`）。
 3. **会员弹窗遮罩** —— 首页加载弹一次、打开任务中心又弹一次，会拦掉真实鼠标点击（Playwright 报 `click timed out`）。脚本先点 `activity-dialog-close`，仍被拦时退化为 DOM 级 `element.click()`。
 
-另外「召唤任意专家」会弹《库库 AI 用户协议》，需要勾「我已阅读并同意」才会出现输入框。脚本会代点并写进 `notes`；不想让它代点就用 `--tasks` 排除 `expert_chat`。
+另外「召唤任意专家」会弹《库库 AI 用户协议》，需要勾「我已阅读并同意」才会出现输入框。这一项**默认不做**——同意协议是你本人的行为，脚本不替你点；本人确认后加 `--with-expert` 才会代勾。
 
 更多细节见 `references/`。
 
