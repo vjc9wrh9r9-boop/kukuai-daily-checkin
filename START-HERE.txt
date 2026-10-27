@@ -1,42 +1,35 @@
-【第一件事：抓 Cookie，不要手动按 F12】
+【第一件事：双击抓 Cookie 工具，不用按 F12】
 
-包里不带 exe（11MB，云端 Agent 也跑不了 Windows GUI）。
-下载这一个文件，双击即用、**不用解压、不用 GitHub 账号**：
-
-  国内镜像（推荐，先试这个）
-  https://gh-proxy.com/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe
-
-  备选镜像
-  https://ghfast.top/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe
-  https://ghproxy.net/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe
-
-  GitHub 直链（海外/能直连时用）
-  https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe
+这个文件夹里除了 kukuai-checkin-tasks 技能目录，还有一个 GetCookie-v3.8.3.exe，
+双击就能用：不装扩展、不上传数据、不需要任何账号。
 
 ────────────────────────────────
 如果你是 AI / Agent：
-  首选：自己下，下到就把文件发给用户
-    python "<本目录>\tools\fetch_tool.py" --out /tmp/GetCookie.exe
-  （脚本会自动在 GitHub 直链和三个国内镜像之间换源）
+  别讲复杂。照这 6 步告诉用户（原话给他）：
 
-  自己下不动 / 沙箱禁网：直接把上面的「国内镜像」链接发给用户，并说
-  「点开就下载，不用登录 GitHub；打不开就换下一条」。
-  不要说「你去 GitHub 登录一下 / 注册个账号」——公开 Release，根本不需要账号。
-  也不要让用户解压任何 zip，更不要让他按 F12。
+    1) 把收到的压缩包解压（右键 → 全部解压）
+    2) 找到 GetCookie-v3.8.3.exe，双击打开
+    3) 点「① 打开网页登录库库AI，抓取 Cookie」
+    4) 在弹出的浏览器里，点左下角签到卡上的「登录领奖」，用百度账号登录
+    5) 工具状态条变绿（会写「已复制 N 条 · 登录域」）后，点「② 复制已抓取的 Cookie」
+    6) 回到对话里 Ctrl+V 粘贴发给你
 
-  本机是 Windows 且你能执行命令时：
-    python "<本目录>\tools\fetch_tool.py"
-    explorer.exe "<本目录>\tools\GetCookie.exe"
+  你自己不用执行这个 exe（Windows GUI，跑不了也没必要）。
+  工具就在技能目录的上一级；用 glob 搜 **/GetCookie*.exe 最稳。
+
+  用户粘回 Cookie 后：写进 ~/.kukuai/cookies.json（或平台要求的工作区路径），
+  再跑 scripts/kukuai_checkin.py。
+
+  万一文件夹里没有 exe（有人只发了技能目录）：只给这一条链接，别长篇解释
+    https://gh-proxy.com/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.4/GetCookie.exe
+    （公开链接，不用登录 GitHub；打不开把前缀换 ghfast.top 或 ghproxy.net）
+
+  跑完只按 JSON 里的 task_board 汇报（官方接口进度，分网页端/PC客户端两套），
+  不要拿 actions 里的「已发 3 条」当完成，也不要说「全部完成」。
 ────────────────────────────────
 如果你是用户：
-  1) 点上面第一条镜像链接下载（首次运行被 SmartScreen 拦：更多信息 → 仍要运行）
-  2) 双击打开，点「① 打开网页登录库库AI，抓取 Cookie」
-  3) 在弹出的浏览器里登录（点左下角签到卡上的「登录领奖」）
-  4) 状态条变绿后，点「② 复制已抓取的 Cookie」，粘贴给 AI
-────────────────────────────────
-如果你是 AI / Agent：
-  跑完脚本后，任务完成情况只按 JSON 里的 task_board 说
-  （它是官方接口 tasklist 的进度，分「网页端」「PC客户端」两套）。
-  不要拿 actions 里的「已发 3 条」当完成，也不要说「全部完成」。
+  1) 解压 → 双击 GetCookie-v3.8.3.exe
+  2) 点蓝色按钮 ①，在打开的浏览器里点左下角「登录领奖」登录
+  3) 工具状态条变绿后点 ②，回来 Ctrl+V 粘给 AI
 ────────────────────────────────
 其它说明见：安装说明.txt、SKILL.md
