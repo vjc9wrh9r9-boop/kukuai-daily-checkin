@@ -58,7 +58,7 @@ COOKIE_HOSTS = ["https://kuku.baidu.com/", "https://baidu.com/", "https://passpo
 REQUIRED_COOKIES = [("BDUSS", "baidu.com"), ("STOKEN", "kuku.baidu.com")]
 
 APP_TITLE = "库库AI Cookie 抓取工具"
-APP_VERSION = "3.8.2"
+APP_VERSION = "3.8.3"
 
 # 默认浏览器拿不到时按顺序退化的候选
 FALLBACK_BROWSERS = [
@@ -789,9 +789,17 @@ class CookieApp:
         wrap = tk.Frame(root, bg=COLORS["bg"])
         wrap.pack(fill="both", expand=True, padx=22, pady=18)
 
-        # 标题
-        tk.Label(wrap, text="库库AI Cookie 抓取工具", bg=COLORS["bg"], fg=COLORS["text"],
-                 font=(font, 17, "bold"), anchor="w").pack(fill="x")
+        # 标题（右侧挂一个资源入口）
+        head = tk.Frame(wrap, bg=COLORS["bg"])
+        head.pack(fill="x")
+        tk.Label(head, text="库库AI Cookie 抓取工具", bg=COLORS["bg"], fg=COLORS["text"],
+                 font=(font, 17, "bold"), anchor="w").pack(side="left")
+        self.link_res = tk.Label(head, text="更多免费资源 ↗", bg=COLORS["bg"], fg=COLORS["accent"],
+                                 font=(font, 9, "underline"), cursor="hand2", anchor="e")
+        self.link_res.pack(side="right", pady=(6, 0))
+        self.link_res.bind("<Button-1>", lambda e: self.open_resources())
+        self.link_res.bind("<Enter>", lambda e: self.link_res.configure(fg=COLORS["accent_dark"]))
+        self.link_res.bind("<Leave>", lambda e: self.link_res.configure(fg=COLORS["accent"]))
         tk.Label(wrap, text="点第 ① 个按钮打开网页登录一次，抓到后点第 ② 个按钮复制给 Agent。不装扩展、不上传。",
                  bg=COLORS["bg"], fg=COLORS["sub"], font=(font, 9), anchor="w",
                  justify="left", wraplength=540).pack(fill="x", pady=(4, 14))
@@ -1048,6 +1056,17 @@ class CookieApp:
             self.log("已复制到剪贴板（%d 条，%d 字符）" % (self.cookie_count, len(self.payload)))
         else:
             self.set_status("复制失败（剪贴板被占用）。请点右下角「打开文件夹」手动复制。", "fail")
+
+    def open_resources(self):
+        """右上角「更多免费资源」→ 打开外部链接。"""
+        import webbrowser
+        url = "https://link3.cc/haochihc"
+        try:
+            webbrowser.open(url)
+            self.log("打开「更多免费资源」：%s" % url)
+        except Exception as e:
+            self.log("打开链接失败：%s" % e)
+            self.set_status("浏览器没打开，手动访问 %s" % url, "fail")
 
     def open_folder(self):
         path = Path(self.out_path)
