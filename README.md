@@ -61,7 +61,7 @@ python -m playwright install chromium
 ## 拿 Cookie（用自带工具，别按 F12）
 
 **不想解压 / Agent 打不开 zip**：直接下这一个文件（双击即用，不用解压）
-<https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.1/GetCookie.exe>
+<https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.2/GetCookie.exe>
 
 或者双击 `tools/GetCookie.exe`：
 
