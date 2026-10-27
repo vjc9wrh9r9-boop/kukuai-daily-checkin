@@ -45,7 +45,7 @@ LOGIN_URL = "https://kuku.baidu.com/app"
 DEFAULT_URL = LOGIN_URL
 # 判定登录：以活动页所在域（kuku.baidu.com）的接口为准
 LOGIN_COOKIE_NAMES = ("BDUSS",)
-LOGIN_COOKIE_DOMAINS = ("kukuai.cn", "baidu.com")
+LOGIN_COOKIE_DOMAINS = ("baidu.com",)
 DEFAULT_OUT = "~/.kukuai/cookies.json"
 # 读 cookie 时按这些地址查询
 COOKIE_HOSTS = ["https://kuku.baidu.com/", "https://baidu.com/", "https://passport.baidu.com/"]
@@ -58,7 +58,7 @@ COOKIE_HOSTS = ["https://kuku.baidu.com/", "https://baidu.com/", "https://passpo
 REQUIRED_COOKIES = [("BDUSS", "baidu.com"), ("STOKEN", "kuku.baidu.com")]
 
 APP_TITLE = "库库AI Cookie 抓取工具"
-APP_VERSION = "2.0"
+APP_VERSION = "3.8.0"
 
 # 默认浏览器拿不到时按顺序退化的候选
 FALLBACK_BROWSERS = [
@@ -383,6 +383,20 @@ def has_login(cookies):
 def has_baidu_login(cookies):
     """宽松判定：任意域上有 BDUSS（只有 .baidu.com 时说明登录在错误的地方）。"""
     return any(c.get("name") == "BDUSS" for c in cookies)
+
+
+def has_kukuai_bduss(cookies, only=False):
+    """BDUSS 是否落在 .kukuai.cn 域（登录登错入口的典型特征）。"""
+    found = False
+    for c in cookies:
+        if c.get("name") != "BDUSS":
+            continue
+        dom = (c.get("domain") or "").lstrip(".").lower()
+        if dom == "kukuai.cn" or dom.endswith(".kukuai.cn"):
+            found = True
+        elif only:
+            return False
+    return found
 
 
 USERREPORT_API = ("https://kuku.baidu.com/api/genflowpro/common/userreport"
@@ -838,7 +852,9 @@ class CookieApp:
             lost = 0
             next_tick = 0
             warned_baidu = False
+            warned_domain = False
             verify_fail = 0
+            next_verify = 0.0
             while time.time() < deadline:
                 if self.stop_flag:
                     return
@@ -850,41 +866,40 @@ class CookieApp:
                 else:
                     lost = 0
                 cookies = read_cookies(self.port)
-                if cookies and not has_login(cookies) and has_baidu_login(cookies) and not warned_baidu:
+                if cookies and not has_login(cookies) and has_kukuai_bduss(cookies) and not warned_baidu:
                     warned_baidu = True
-                    self._ui(self.log, "检测到百度域 BDUSS，但工作台还没登录 —— 请点左下角「登录领奖」")
+                    self._ui(self.log, "看到 kukuai.cn 域的 BDUSS，但活动域(kuku.baidu.com)还没登录")
                     self._ui(self.set_status,
-                             "还差一步：点左下角签到卡上的「登录领奖」，用百度账号登录。", "work")
-                if cookies and has_login(cookies):
-                    # 刚登录的一瞬间可能只写好了 BDUSS，稍等一下再读，把 STOKEN 等一并带上
-                    time.sleep(1.2)
-                    again = read_cookies(self.port)
-                    if again and has_login(again):
-                        cookies = again
-                    # 关键：以工作台接口为准。只要接口说未登录，就不算抓取成功
+                             "这个窗口登录的是 kukuai.cn（活动页不认）。切到 kuku.baidu.com/app 标签页，"
+                             "点左下角签到卡「登录领奖」再登一次。", "fail")
+
+                # 只认工作台接口：True 才保存；False / None（接口没响应）都当没完成，继续等
+                if cookies and time.time() >= next_verify:
+                    next_verify = time.time() + 3
                     state = app_login_state(self.port)
-                    if state is False:
-                        verify_fail += 1
-                        if verify_fail == 1:
-                            self._ui(self.log, "检测到登录 cookie，但工作台接口仍返回未登录，等会话生效…")
-                        if verify_fail >= 8:
-                            self._ui(self._fail,
-                                     "工作台接口一直返回「未登录」。登录可能没真正完成：请确认网页右上角"
-                                     "出现了头像、签到卡不再显示「登录领奖」，然后点 ① 重试。")
+                    if state is True:
+                        again = read_cookies(self.port) or cookies
+                        data, payload, minimal = save_cookies(again, self.out_path)
+                        if not data:
+                            self._ui(self._fail, "读到了 Cookie 但没有 BDUSS，可能还没登录完成，重试一次。")
                             return
-                        time.sleep(1.5)
-                        continue
-                    data, payload, minimal = save_cookies(cookies, self.out_path)
-                    if not data:
-                        self._ui(self._fail, "读到了 Cookie 但没有 BDUSS，可能还没登录完成，重试一次。")
+                        self.payload = payload
+                        self.cookie_count = len(data)
+                        note = "" if minimal else "（必需项不全，已保留全部 %d 条）" % len(data)
+                        self._ui(self._success, len(data), note)
                         return
-                    self.payload = payload
-                    self.cookie_count = len(data)
-                    note = "" if state else "（未做服务端校验，如遇未登录请重抓）"
-                    if not minimal:
-                        note += "（必需项不全，已保留全部）"
-                    self._ui(self._success, len(data), note)
-                    return
+                    if state is False:
+                        if has_kukuai_bduss(cookies) and not has_login(cookies) and not warned_domain:
+                            warned_domain = True
+                            self._ui(self.log, "登录写到了 .kukuai.cn 域，活动域不认 —— 已提示换标签页重登")
+                            self._ui(self.set_status,
+                                     "登错入口了：请切到 https://kuku.baidu.com/app 这个标签页，"
+                                     "点左下角签到卡「登录领奖」重登一次。", "fail")
+                        verify_fail += 1
+                        if verify_fail % 5 == 0:
+                            self._ui(self.log, "接口仍返回未登录（第 %d 次），登录完成后会自动抓" % verify_fail)
+                    else:
+                        self._ui(self.log, "工作台接口暂无响应，3 秒后重试")
                 elapsed = int(time.time() - start)
                 if elapsed >= next_tick:
                     next_tick = elapsed + 3
@@ -892,8 +907,10 @@ class CookieApp:
                              "已等待 %d 秒 —— 点左下角签到卡上的「登录领奖」完成登录即可。" % elapsed, "work")
                 time.sleep(1.5)
 
-            self._ui(self._fail, "等了 %d 分钟还没检测到登录。重新点第 ① 个按钮，登录后别急着关窗口。"
-                     % max(1, self.timeout // 60))
+            tail = ("（一直只抓到 kukuai.cn 域的登录，活动页不认；请在 kuku.baidu.com/app 页点「登录领奖」）"
+                    if warned_domain else "")
+            self._ui(self._fail, "等了 %d 分钟还没登录成功。重新点第 ① 个按钮，登录后别急着关窗口。%s"
+                     % (max(1, self.timeout // 60), tail))
         except Exception as e:
             self._ui(self._fail, "出错了：%s: %s" % (type(e).__name__, e))
         finally:
