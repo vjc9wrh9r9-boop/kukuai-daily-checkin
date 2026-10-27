@@ -63,7 +63,7 @@ v4 会两个渠道都做、都上报、都核验，所以 `task_board` 里会同
 
 `https://gh-proxy.com/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.4/GetCookie.exe`
 
-公开链接，**不用登录 GitHub**；打不开把域名前缀换成 `https://ghfast.top/` 或 `https://ghproxy.net/` 再试。
+公开链接，**不用登录 GitHub**，点开就下。
 
 ### 两个高频疑问
 
