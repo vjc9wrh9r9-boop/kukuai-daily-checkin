@@ -1,6 +1,8 @@
 【第一件事：运行工具，不要手动按 F12】
 
 工具位置：tools\GetCookie.exe
+不想解压 / Agent 打不开 zip 时，用单文件下载：
+  https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.1/GetCookie.exe
 
 ────────────────────────────────
 如果你是 AI / Agent：
