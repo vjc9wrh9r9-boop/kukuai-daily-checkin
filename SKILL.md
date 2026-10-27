@@ -1,7 +1,7 @@
 ---
 name: kukuai-checkin-tasks
 display_name: "库库AI 签到 + 每日任务"
-version: "4.0.4"
+version: "4.0.5"
 updated: "2026-10-28"
 activity: "每日签到得网盘SVIP月卡 · 做任务抽好礼 赢苹果笔记本（2026-10-21 ~ 2026-12-04）"
 description: "库库AI（kuku.baidu.com / kukuai.cn，百度 AI 办公智能体）每日签到与每日任务的自动化。适配 2026-10-21 起的新一期活动「每日签到得网盘SVIP月卡」，连签 3/7/15/30 天解锁网盘 SVIP，做任务攒积分与抽奖次数。**任务进度分「网页端」和「PC 客户端」两套独立记录，脚本两端都做、都核验**。当用户提出「帮我签到」「自动签到」「领一下库库AI的每日积分」「完成库库AI每日任务」「今天签到成功没 / 连签几天了」等诉求时使用。本 Skill 自带 Cookie 抓取工具 tools/GetCookie.exe（双击即用），不要让用户手动按 F12。"
@@ -20,6 +20,9 @@ description: "库库AI（kuku.baidu.com / kukuai.cn，百度 AI 办公智能体�
 >
 > **汇报时必须照抄 `task_board` 里的数字**，不许把 `actions` 里的「已发 3 条」当成完成。
 > `task_board` 为空 / `warnings` 里有「读取任务接口失败」时，直接说「进度无法核验」，别猜。
+>
+> 另外：定时任务**全账号只建一条**（一条 `--all` 命令覆盖专家/网盘/上传）。详见文末「定时任务」——
+> 建第二条会撞上平台的数量上限（免费额度通常只有 1 条）。
 
 ## 为什么你看到「做完了」但客户端还是 0/3
 
@@ -115,8 +118,8 @@ python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --dry-run
 # 2) 正式跑：签到 + 两个渠道的每日任务
 python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json
 
-# 3) 首次用：专家协议 / 网盘授权想一次做掉（本人同意后再加）
-python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --with-expert --with-netdisk
+# 3) 一次做全（专家 + 网盘导入 + 上传），定时任务就用这一条命令
+python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --all
 
 # 只签到（不碰任务）
 python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --only-signin
@@ -220,12 +223,33 @@ python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --channels web
 | 页面卡住 / 整体超时（`stage=timeout`） | 把 timeout 信息原样告诉用户，附日志路径 |
 | 任务上报失败 | `warnings` 里有 errno，按上表处理；核验未达就写「未达成」 |
 
-## 定时任务
+## 定时任务（全账号只建一条，别建第二条）
 
-> ⚠️ 这里的「定时任务」指 **Agent 自带的定时任务 / 自动化任务**，不是 Windows 计划任务（taskschd.msc）、不是 crontab。
-> 用 `schtasks` / `crontab` 配的没人汇报结果。
+> ⚠️ 这里说的是 **Agent 自带的定时任务 / 自动化任务**，不是 Windows 计划任务（taskschd.msc），也不是 crontab。
 
-建一条每天 09:00 前后的周期任务，描述写：用 `~/.kukuai/cookies.json` 运行 `scripts/kukuai_checkin.py`，把 `task_board` 的完成度推给用户；登录失效就提醒重新抓 Cookie；有断签/临期提醒就重点说。
+### 铁律
+
+1. **整个账号只建一条**，名字固定「库库AI 每日签到 + 每日任务」。
+2. 要加范围（专家、网盘）或改时间，**改这一条**，不要点「新建」。
+3. 一条命令覆盖全部，不需要为不同任务建多条：
+
+```bash
+python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --all
+```
+
+`--all` = 签到 + 聊热门话题 + 逛广场 + 召唤专家（首次代勾协议，之后自动）+ 上传占位文件 + 网盘导入（已授权时）。
+**不要建「签到任务」「专家任务」「网盘任务」三条。**
+
+### 任务描述就写这段
+
+> 用 `~/.kukuai/cookies.json` 运行 `scripts/kukuai_checkin.py --all`，
+> 把 JSON 里 `task_board` 的完成度（网页端 x/6、PC客户端 x/7）推给我；
+> 登录失效就提醒我重新抓 Cookie；有断签或活动临期就重点说。
+
+### 平台提示「自动化数量已达上限 / 开通会员可继续创建」
+
+说明已经建过一条（多半是重复建了）。**先删掉多余的那条，保留一条**，
+不要点「开通会员」，也不要再尝试新建。免费额度通常就是 1 条，够用。
 
 ## 合规提示
 
