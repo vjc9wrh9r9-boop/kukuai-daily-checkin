@@ -9,13 +9,23 @@
     macOS:    ~/.workbuddy/skills/
   路径只用英文数字，中文目录可能触发某些 Agent 的技能路径保护。
 
-二、导出 Cookie
-  1. 浏览器登录 https://www.kukuai.cn/
-  2. F12 → Application → Cookies → https://www.kukuai.cn
-  3. 复制 BDUSS、STOKEN 的值（BDUSS 是 HttpOnly，只能在这里复制）
-  4. 存成 C:\Users\<用户名>\.kukuai\cookies.json：
-       {"BDUSS":"你的值","STOKEN":"你的值"}
-  活动内容在 kuku.baidu.com 域下，两个域各导一份更稳，格式见 assets/cookie.example.json。
+二、拿到 Cookie（推荐双击 exe）
+  双击 tools\GetCookie.exe
+    → 弹出一个浏览器窗口，自动打开 kukuai.cn
+    → 用你的百度账号登录（扫码/账号密码都行）
+    → 登录成功后不用管，2 秒内自动保存并关窗，弹「完成」
+    → Cookie 存在 C://Users//<用户名>//.kukuai//cookies.json（脚本默认读这里）
+
+  首次运行可能被 SmartScreen 拦：点「更多信息」→「仍要运行」。
+  工具只读取它自己那个临时浏览器窗口的 Cookie，不碰你日常浏览器的数据，不上传任何东西。
+
+  没有 exe 或想手工做：
+    1. 浏览器登录 https://www.kukuai.cn/
+    2. F12 → Application → Cookies → https://www.kukuai.cn
+    3. 复制 BDUSS、STOKEN 的值（BDUSS 是 HttpOnly，只能在这里复制）
+    4. 存成 C://Users//<用户名>//.kukuai//cookies.json：
+         {"BDUSS":"你的值","STOKEN":"你的值"}
+
   Cookie 等同账号密码，只存本机，别发给任何人。
 
 三、运行
