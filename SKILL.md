@@ -1,7 +1,7 @@
 ---
 name: kukuai-checkin-tasks
 display_name: "库库AI 签到 + 每日任务"
-version: "3.0.0"
+version: "3.2.0"
 updated: "2026-10-27"
 activity: "每日签到得网盘SVIP月卡 · 做任务抽好礼 赢苹果笔记本（2026-10-21 ~ 2026-12-04）"
 description: "库库AI（kukuai.cn / kuku.baidu.com，百度文库与百度网盘联合推出的 AI 办公智能体平台）每日签到与每日任务的云端自动化。当前适配 2026-10-21 起的新一期活动「每日签到得网盘SVIP月卡」，连签 3/7/15/30 天解锁网盘 SVIP，做任务攒积分与抽奖次数。当用户提出「帮我签到」「自动签到」「领一下库库AI的每日积分」「完成库库AI每日任务」「每天定时自动签到」「今天签到成功没 / 连签几天了」等诉求时使用。用导出的登录 Cookie 在云端跑脚本完成签到与任务，无需本机浏览器。"
@@ -79,13 +79,19 @@ explorer.exe "C:\Users\<用户名>\.workbuddy\skills\kukuai-checkin-tasks\tools\
 
 > 必须用 `explorer.exe` 拉起：Agent 工具会话里直接 exec 的进程会随命令结束被回收，用 explorer 启动才不会被杀。
 
-exe 会做三件事：
+exe 打开后是一个小窗口，**不会自己开网页**，只有两个按钮：
 
-| 步骤 | 程序行为 |
+| 按钮 | 行为 |
 | --- | --- |
-| 1 | 用**系统默认浏览器**开一个独立窗口（临时配置，不碰日常数据），自动打开 kukuai.cn |
-| 2 | 等用户自己登录（扫码或账号密码都行） |
-| 3 | 检测到登录后：保存到 `~/.kukuai/cookies.json` + **自动复制到剪贴板** + 弹窗显示「已复制」 |
+| ① 打开网页登录库库AI，抓取 Cookie | 用**系统默认浏览器**开独立窗口（临时配置，不碰日常数据）→ 打开 `https://kuku.baidu.com/home?...` 登录页 → 用户自己登录 → 检测到登录后自动保存到 `~/.kukuai/cookies.json`，窗口状态条变绿显示「抓取成功，已保存 N 条」并关闭临时浏览器 |
+| ② 复制已抓取的 Cookie | 把已保存的 Cookie 复制到剪贴板，状态条显示「已复制 N 条，去 Agent 对话里 Ctrl+V」 |
+
+失败也会在状态条变红说明原因（浏览器被关掉 / 超时未登录 / 没找到可用浏览器 / 调试端口被拦）。
+
+**Agent 的正确做法**：拉起 exe → 告诉用户「在弹出的窗口里点第 ① 个按钮，登录完再点第 ② 个按钮」→ 等用户把 Cookie 粘过来。**不要代点、不要代填账号密码。**
+
+> 登录页默认是用户自己的邀请链接 `https://kuku.baidu.com/home?invite_code=XUU5A9AB&...`。
+> 换成纯登录页可用 `--url "https://www.kukuai.cn/"`；注意实测 360 浏览器加载 kukuai.cn 会在 8 秒左右进程退出，抓不到 Cookie，所以默认用了 kuku.baidu.com。
 
 ### A2. 用户把 Cookie 粘过来了怎么办
 
@@ -99,8 +105,8 @@ exe 会做三件事：
 
 ### B. 浏览器开发者工具（没有 exe 时用）
 
-1. Chrome / Edge 登录 `https://www.kukuai.cn/`
-2. `F12` → Application（应用）→ Cookies → `https://www.kukuai.cn`
+1. Chrome / Edge 登录 `https://kuku.baidu.com/home`（或 `https://www.kukuai.cn/`）
+2. `F12` → Application（应用）→ Cookies → 对应的域
 3. 复制 `BDUSS`、`STOKEN` 的值（`BDUSS` 是 HttpOnly，只能在面板里复制）
 4. 存成 `~/.kukuai/cookies.json`：
 
