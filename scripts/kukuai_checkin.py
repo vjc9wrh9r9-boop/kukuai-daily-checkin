@@ -71,6 +71,8 @@ DEFAULT_COOKIE_PATHS = [
     "uploads/kukuai_cookies.json",
 ]
 DEFAULT_STATE_PATH = "~/.kukuai/state.json"
+# 用户同意过《库库AI用户协议》就记一笔，之后每天自动跑不用再带 --with-expert
+CONSENT_PATH = "~/.kukuai/consent.json"
 
 RISK_KEYWORDS = [
     "验证码", "拖动滑块", "滑块验证", "安全验证", "人机验证",
@@ -826,6 +828,23 @@ class Runner:
         self.shot("square")
         return (1, []) if ok else (0, [])
 
+    def expert_consented(self) -> bool:
+        try:
+            d = json.loads(Path(CONSENT_PATH).expanduser().read_text(encoding="utf-8"))
+            return bool(d.get("expert_agreement"))
+        except Exception:
+            return False
+
+    def save_expert_consent(self):
+        try:
+            p = Path(CONSENT_PATH).expanduser()
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps({"expert_agreement": True,
+                                     "at": datetime.now(CN_TZ).isoformat(timespec="seconds")},
+                                    ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception as e:
+            self.log("save consent failed: %s" % e)
+
     def act_expert(self):
         self.restore_app()
         self.page.goto((self.base or self.args.url) + "#/workbench/expert", wait_until="domcontentloaded", timeout=60000)
@@ -869,9 +888,10 @@ class Runner:
             try:
                 loc = self.page.get_by_text(t, exact=True)
                 if loc.count() and loc.first.is_visible():
-                    if not getattr(self.args, "with_expert", False):
+                    if not (getattr(self.args, "with_expert", False) or self.expert_consented()):
                         self.log("user agreement dialog requires manual consent")
-                        self._action_note = "首次召唤专家要你本人勾选《库库AI用户协议》；同意过一次后，之后每天都能自动完成"
+                        self._action_note = ("首次召唤专家要你本人勾选《库库AI用户协议》；"
+                                             "同意过一次后（--with-expert 跑一次），以后每天都会自动完成")
                         self.result["notes"].append(self._action_note)
                         return 0, []
                     loc.first.click(timeout=2500)
@@ -889,7 +909,8 @@ class Runner:
                 except Exception:
                     continue
             self.page.wait_for_timeout(2500)
-            self.result["notes"].append("已代勾《库库AI用户协议》（--with-expert）")
+            self.save_expert_consent()
+            self.result["notes"].append("已代勾《库库AI用户协议》（同意记录已保存，之后自动）")
 
         self.page.wait_for_timeout(1200)
         sid = self.send_chat(EXPERT_PROMPT)
@@ -1455,10 +1476,15 @@ def main(argv=None):
                     help="首次召唤专家时代勾《库库 AI 用户协议》并直接完成；不加则首次会提示需你本人勾选一次")
     ap.add_argument("--with-netdisk", action="store_true",
                     help="首次导入网盘文件时代点「确定授权」；不加则首次会跳过并提示需手动授权一次")
+    ap.add_argument("--all", action="store_true",
+                    help="一次做全：含专家（首次代勾协议）+ 网盘导入（若已授权）+ 上传占位文件")
     ap.add_argument("--no-upload", action="store_true", help="不上传占位文件到网盘")
     ap.add_argument("--timeout", type=int, default=30, help="单步超时秒数（默认 30）")
     ap.add_argument("--deadline", type=int, default=1200, help="整体硬超时秒数（默认 1200）")
     args = ap.parse_args(argv)
+    if args.all:
+        args.with_expert = True
+        args.with_netdisk = True
 
     out_dir = Path(args.out).expanduser()
     out_dir.mkdir(parents=True, exist_ok=True)
