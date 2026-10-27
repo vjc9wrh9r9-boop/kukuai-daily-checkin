@@ -42,7 +42,9 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-HOME_URL = "https://www.kukuai.cn/"
+# 入口必须是 kuku.baidu.com —— 签到活动 iframe 在这个域，
+# www.kukuai.cn 与它登录态互相独立（只在 kukuai.cn 登录会「登录成功但签到卡仍显示登录领奖」）
+HOME_URL = "https://kuku.baidu.com/app"
 CN_TZ = timezone(timedelta(hours=8))
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
@@ -941,13 +943,34 @@ class Runner:
             return "需邀请好友，跳过"
         self.page.wait_for_timeout(2500)
         navigated = self.page.url != before_url
-        if res is None or (not navigated and "知识广场" not in self.flat()):
-            self.click_texts(["知识广场"], timeout=3500)
-            self.page.wait_for_timeout(2500)
-            navigated = self.page.url != before_url
+        # 「去完成」没带跳转时，点侧栏的「知识广场」
+        if not navigated:
+            for how in ("role", "text", "hash"):
+                try:
+                    if how == "role":
+                        loc = self.page.get_by_role("link", name="知识广场")
+                        if not loc.count():
+                            loc = self.page.get_by_role("button", name="知识广场")
+                        if loc.count():
+                            loc.first.click(timeout=3000)
+                    elif how == "text":
+                        self.click_texts(["知识广场"], timeout=3000)
+                    else:
+                        self.page.goto(self.page.url.split("#")[0] + "#/square",
+                                       wait_until="domcontentloaded", timeout=30000)
+                except Exception as e:
+                    self.log("square click via %s failed: %s" % (how, str(e)[:50]))
+                for _ in range(10):
+                    self.page.wait_for_timeout(700)
+                    if self.page.url != before_url:
+                        navigated = True
+                        break
+                if navigated:
+                    self.log("square reached via %s: %s" % (how, self.page.url[-40:]))
+                    break
         self.page.wait_for_timeout(12000)  # 任务要求停留 10s
-        self.log("stayed 12s, navigated=%s" % navigated)
-        return "已停留 12s" if navigated else "已等待 12s（未确认已进入知识广场）"
+        self.log("stayed 12s, navigated=%s, url=%s" % (navigated, self.page.url[-40:]))
+        return "已进入知识广场并停留 12s" if navigated else "已等待 12s（未确认已进入知识广场）"
 
     def run_tasks(self):
         self.result["stage"] = "tasks"
@@ -1262,7 +1285,7 @@ def main(argv=None):
     ap.add_argument("--out", default="outputs", help="截图与结果输出目录（默认 outputs）")
     ap.add_argument("--log", default="", help="日志目录（默认 <out>/log）")
     ap.add_argument("--state", default="", help="连签状态文件（默认 ~/.kukuai/state.json）")
-    ap.add_argument("--url", default=HOME_URL, help="入口地址，默认库库AI 官网（活动页在 iframe 内，不能直接填 iframe 地址）")
+    ap.add_argument("--url", default=HOME_URL, help="入口地址，默认 https://kuku.baidu.com/app（签到活动所在域；不能填 iframe 地址）")
     ap.add_argument("--headful", action="store_true", help="显示浏览器窗口（默认无头）")
     ap.add_argument("--dry-run", action="store_true", help="只校验登录态并探测结构，不签到不点任务")
     ap.add_argument("--probe-entry", action="store_true", help="dry-run 时额外打开任务中心并解析状态")
