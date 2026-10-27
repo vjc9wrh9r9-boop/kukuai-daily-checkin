@@ -1,5 +1,24 @@
 # 版本变更记录
 
+## v3.6.0 — 2026-10-27（跑通实签：入口固定到 kuku.baidu.com/app）
+
+第四组 Cookie（BDUSS 在 `.baidu.com`、STOKEN 在 `.kuku.baidu.com` / `.passport.baidu.com`）终于让**签到真正成功**：
+
+- 签到：今日已签，连签 1 天，下一节点「连签 3 天」还差 2 天
+- 与库库聊聊热门话题：3/3
+- 浏览 10s 知识广场：已进入并停留 12s
+- 召唤专家：默认跳过（需本人同意协议）
+
+代码改动：
+
+| 文件 | 改动 |
+| --- | --- |
+| `kukuai_checkin.py` | `HOME_URL` 默认值改为 `https://kuku.baidu.com/app`（签到活动 iframe 所在域） |
+| `kukuai_checkin.py` | 「知识广场」跳转加固：去完成 → 侧栏 role/text → 直接改 hash 三级兜底，并轮询确认已跳转 |
+| `kukuai_signin.py` | 同样把 `HOME_URL` 改为 `kuku.baidu.com/app` |
+
+> 之前的教训：只在 `www.kukuai.cn` 登录会出现「接口 errno=0、积分能读，但签到卡还是登录领奖」。
+
 ## v3.5.0 — 2026-10-27（登录页改到活动所在域 kuku.baidu.com/app）
 
 第三组样本（含 `passport.kukuai.cn` 的 PTOKEN/SAVEUSERID/STOKEN）终于登进工作台了：
