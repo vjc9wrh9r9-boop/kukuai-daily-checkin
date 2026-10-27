@@ -12,13 +12,23 @@
 
 ### 2.0 双击 exe（推荐）
 
-`tools/GetCookie.exe` 双击即可：
+`tools/GetCookie.exe` 双击后是一个小窗口，**不会自动开网页**，只有两个按钮：
 
-1. 弹出独立浏览器窗口，自动打开 kukuai.cn（用的是你本机 Chrome / Edge，临时配置）
-2. 你用百度账号登录
-3. 工具通过 DevTools 协议读出 Cookie，2 秒内自动保存到 `~/.kukuai/cookies.json` 并关窗
+| 按钮 | 行为 | 状态条 |
+| --- | --- | --- |
+| ① 打开网页登录库库AI，抓取 Cookie | 用系统默认浏览器开独立窗口（临时配置）→ 打开 `kuku.baidu.com/home?invite_code=...` → 用户自己登录 → 自动读取 Cookie 并写 `~/.kukuai/cookies.json` | 蓝色「已等待 N 秒…」→ 绿色「抓取成功，已保存 N 条」/ 红色失败原因 |
+| ② 复制已抓取的 Cookie | 把已保存的 Cookie 复制到剪贴板（紧凑 JSON 数组） | 绿色「已复制 N 条，去 Agent 对话里 Ctrl+V」 |
 
-只读它自己那个窗口，不碰日常浏览器数据，不装扩展、不上传。源码 `tools/get_cookie.py`。
+失败常见原因：浏览器被提前关掉、超时未登录、没找到可用浏览器、调试端口被安全软件拦。
+
+实现要点：
+
+- 默认浏览器从注册表 `UrlAssociations\https\UserChoice` 读 ProgId，再取 `shell\open\command`；Firefox 不支持 CDP 会跳过，退到 Chrome / Edge
+- WebSocket 客户端用标准库自己实现，**零第三方依赖**，打包体积小、不易误判
+- 实测：**360 浏览器加载 `www.kukuai.cn` 会在 8 秒左右整个进程退出**，调试端口跟着断，抓不到 Cookie；所以登录页默认用 `kuku.baidu.com`，稳定
+- 只读它自己那个窗口，不碰日常浏览器数据，不装扩展、不上传
+
+源码 `tools/get_cookie.py`，可自行审阅；命令行模式 `--cli` 保留给自动化用。
 
 ### 2.1 手工方式（没有 exe 时）
 
@@ -28,7 +38,7 @@
 Cookie 等于登录凭据，只在本机/云端私有目录保存，不要外传。
 
 ### 方式一：浏览器开发者工具（最通用）
-1. Chrome / Edge 打开并登录 `https://www.kukuai.cn/`（百度账号）。
+1. Chrome / Edge 打开并登录 `https://kuku.baidu.com/home`（或 `https://www.kukuai.cn/`，百度账号）。
 2. `F12` → `Application`（应用）→ `Cookies` → `https://www.kukuai.cn`。
 3. 复制 `Name` / `Value`（关键是 `BDUSS`、`STOKEN`），整理成 `assets/cookie.example.json` 的数组格式。
 
