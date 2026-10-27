@@ -20,9 +20,12 @@
   路径只用英文数字，中文目录可能触发某些 Agent 的技能路径保护。
 
 二、拿到 Cookie（两个按钮，最省事）
-  包里不带 exe（11MB，云端 Agent 也跑不了 Windows GUI）。下载这一个文件，双击即用、不用解压：
-    https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe
-  （本机 Agent 也可以执行 python tools\fetch_tool.py 自动下到 tools\）
+  包里不带 exe（11MB，云端 Agent 也跑不了 Windows GUI）。下载这一个文件，双击即用、不用解压、不用登录：
+    镜像1  https://gh-proxy.com/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe
+    镜像2  https://ghfast.top/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe
+    镜像3  https://ghproxy.net/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe
+    直链   https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe
+    （打不开就换下一条；本机 Agent 可以执行 python tools\fetch_tool.py 自动换源下载）
 
     打开后是一个小窗口，不会自己开网页，只有两个按钮：
 
