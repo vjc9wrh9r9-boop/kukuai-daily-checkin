@@ -436,66 +436,103 @@ class Runner:
         return None
 
     # ---------------- 任务中心 ----------------
+    def goto_home(self, timeout_ms=60000, attempts=3) -> bool:
+        """打开入口页并重试。云端到站点的网络偶发超时，单次失败不代表站点挂了。"""
+        for i in range(attempts):
+            try:
+                self.page.goto(self.args.url, wait_until="domcontentloaded", timeout=timeout_ms)
+                return True
+            except Exception as e:
+                self.log("goto attempt %d/%d failed: %s" % (i + 1, attempts, str(e)[:90]))
+                self.page.wait_for_timeout(3000)
+        return False
+
+    def wait_ready(self, timeout_s=15) -> bool:
+        """等工作台真正渲染出来。偶发白屏时主区域是空的，直接点会全部落空。"""
+        for _ in range(timeout_s * 2):
+            t = self.flat()
+            if ("知识广场" in t or "新建任务" in t) and len(t) > 200:
+                return True
+            self.page.wait_for_timeout(500)
+        return False
+
+    def dom_click(self, sel) -> bool:
+        """DOM 级点击：不经命中测试，避免点到叠在上面会跳转的元素。"""
+        if not sel:
+            return False
+        try:
+            loc = self.page.locator(sel)
+            if not loc.count():
+                return False
+            loc.first.evaluate("e => e.click()")
+            return True
+        except Exception as e:
+            self.log("dom_click %s failed: %s" % (sel, e))
+            return False
+
+    def wait_frame(self, timeout_ms=6000) -> bool:
+        waited = 0
+        while waited <= timeout_ms:
+            if self.task_frame() is not None:
+                return True
+            self.page.wait_for_timeout(500)
+            waited += 500
+        return False
+
+    def reset_home(self) -> bool:
+        """回工作台首页。点错跳到 #/workbench/new-task 时，签到卡在那页不存在。"""
+        if not self.goto_home():
+            return False
+        self.page.wait_for_timeout(4500)
+        self.dismiss_blockers()
+        return True
+
     def open_task_center(self) -> bool:
-        """点签到卡标题打开任务中心弹窗（内容在 iframe 里）。"""
+        """打开任务中心（签到按钮与任务卡都在内层 iframe 里）。
+
+        实测不同网络下可用入口不同：本机点签到卡标题能开弹窗，境外机器点标题会
+        跳到「新建任务」空页，横幅才有效。所以每个入口点完都验证 iframe，
+        没出现就回首页换下一个，最多两轮。
+        """
         if self.task_frame() is not None:
             return True
-
-        # 1) 点签到卡标题（实测可打开任务中心）
-        for sel in [self.sel.get("signin_title"), self.sel.get("signin_card")]:
-            if self.loc_click(sel, timeout=5000):
-                self.page.wait_for_timeout(3500)
-                fr = self.task_frame()
-                if fr is not None:
-                    self.result["activity_url"] = fr.url
-                    self.result["actions"].append({"opened_task_center": sel})
+        entries = [
+            ("signin_title", lambda: self.dom_click(self.sel.get("signin_title"))),
+            ("activity_banner", lambda: self.loc_click(self.sel.get("activity_banner"), timeout=4000)),
+            ("signin_card", lambda: self.dom_click(self.sel.get("signin_card"))),
+            ("entry_text", lambda: bool(self.click_texts(self.act.get("entry_texts", []), timeout=4000))),
+        ]
+        for attempt in range(2):
+            if attempt and not self.reset_home():
+                return False
+            for name, action in entries:
+                try:
+                    if not action():
+                        continue
+                except Exception as e:
+                    self.log("entry %s raised: %s" % (name, e))
+                    continue
+                if self.wait_frame(6000):
+                    fr = self.task_frame()
+                    self.result["activity_url"] = fr.url if fr else None
+                    self.result["actions"].append({"opened_task_center": name})
+                    self.log("task center opened via %s" % name)
                     return True
-                self.log("clicked %s but no iframe" % sel)
-
-        # 2) 顶部活动横幅
-        if self.loc_click(self.sel.get("activity_banner"), timeout=4000):
-            self.page.wait_for_timeout(3500)
-            fr = self.task_frame()
-            if fr is not None:
-                self.result["activity_url"] = fr.url
-                self.result["actions"].append({"opened_task_center": "activity_banner"})
-                return True
-
-        # 3) 文案兜底
-        hit = self.click_texts(self.act.get("entry_texts", []), timeout=4000)
-        if hit:
-            self.page.wait_for_timeout(3500)
-            fr = self.task_frame()
-            if fr is not None:
-                self.result["activity_url"] = fr.url
-                self.result["actions"].append({"opened_task_center": hit})
-                return True
+                self.log("%s clicked but no iframe, back home" % name)
+                if not self.reset_home():
+                    return False
         return False
 
     def ensure_task_center(self) -> bool:
-        fr = self.task_frame()
-        if fr is not None:
-            self.dismiss_blockers()  # 打开后会员弹窗可能又冒出来
-            try:
-                if "做任务" in (fr.inner_text("body") or ""):
-                    return True
-            except Exception:
-                pass
+        if self.task_frame() is not None:
+            # 注意：这里不能调 dismiss_blockers，点 activity-dialog-close 会把刚打开的
+            # 任务中心一起关掉（云端实测）
+            return True
         self.dismiss_blockers()
         if self.open_task_center():
-            self.dismiss_blockers()
             return True
-        # 兜底：做完对话/浏览后页面状态不明，回首页重新开一次
-        try:
-            self.log("reopen failed, fallback to home")
-            self.page.goto(self.args.url, wait_until="domcontentloaded")
-            self.page.wait_for_timeout(4500)
-            self.dismiss_blockers()
-            if self.open_task_center():
-                self.dismiss_blockers()
-                return True
-        except Exception as e:
-            self.log("home fallback failed: %s" % e)
+        if self.reset_home() and self.open_task_center():
+            return True
         return False
 
     def has_activity_markers(self) -> bool:
@@ -628,6 +665,18 @@ class Runner:
             return True
 
         hit = None
+        # iframe 里的按钮渲染慢，先轮询等一会儿（云端实测要 3-10 秒）
+        for _ in range(20):
+            fr = self.task_frame()
+            if fr is not None:
+                try:
+                    if fr.locator(self.sel.get("signin_btn") or "button.pc-sign-btn").count():
+                        break
+                except Exception:
+                    pass
+            if any(k in self.flat() for k in (self.act.get("signed_markers") or [])):
+                break
+            self.page.wait_for_timeout(800)
         fr = self.task_frame()
         btn_sel = self.sel.get("signin_btn")
         if fr is not None and btn_sel:
@@ -635,6 +684,11 @@ class Runner:
                 loc = fr.locator(btn_sel)
                 if loc.count() and loc.first.is_visible():
                     txt = (loc.first.inner_text() or "").strip()
+                    # 已签时按钮文案变成「今日已签」，别再点（点了也是空操作，还会误导日志）
+                    if any(k in txt for k in ["已签", "明天再来", "明日再来", "已领"]):
+                        self.result["actions"].append({"signin": "already(btn:%s)" % txt})
+                        self.log("sign button shows already: %s" % txt)
+                        return True
                     try:
                         loc.first.click(timeout=5000)
                     except Exception as ce:
@@ -1099,15 +1153,27 @@ class Runner:
 
     def _run_steps(self, state_path: Path):
         self.result["stage"] = "navigate"
-        try:
-            self.page.goto(self.args.url, wait_until="domcontentloaded")
-        except Exception as e:
-            self.result["error"] = "打开页面失败: %s" % e
-            self.log("goto failed: %s" % e)
+        if not self.goto_home():
+            self.result["error"] = "打开页面失败（重试 3 次都超时，检查网络或代理）"
+            self.shot("goto-failed")
             return
         self.page.wait_for_timeout(4500)
         self.dismiss_blockers()
         self.page.wait_for_timeout(800)
+
+        # 偶发白屏：主区域空白时先重载，别急着点击
+        for attempt in range(3):
+            if self.wait_ready(15):
+                break
+            self.log("page not rendered (attempt %d), reload" % (attempt + 1))
+            self.goto_home()
+            self.page.wait_for_timeout(6000)
+            self.dismiss_blockers()
+        else:
+            self.result["stage"] = "render"
+            self.result["error"] = "页面多次重载仍未渲染出工作台（网络或 CDN 被拦）"
+            self.shot("blank")
+            return
 
         body = self.text()
         logged_in = self.detect_login(body)
@@ -1180,11 +1246,7 @@ class Runner:
         # 3) 收尾
         self.result["stage"] = "finalize"
         if not self.ensure_task_center():
-            try:
-                self.page.goto(self.args.url, wait_until="domcontentloaded")
-                self.page.wait_for_timeout(4000)
-            except Exception:
-                pass
+            self.goto_home()
         st = self.finish_state()
         self.check_warnings(state_path, st)
         self.shot("final")
