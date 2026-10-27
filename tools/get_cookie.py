@@ -2,18 +2,19 @@
 # -*- coding: utf-8 -*-
 """库库AI Cookie 自动抓取工具。
 
-用法（最简单）：
-    双击 获取Cookie.exe  → 弹出的浏览器里用百度账号登录库库AI → 自动保存 → 关窗
+双击 获取Cookie.exe：
+    用你的默认浏览器打开一个独立窗口 → 你用百度账号登录 → 自动保存 + 复制到剪贴板
 
-原理：用本机已有的 Chrome / Edge 开一个独立临时配置的窗口，打开远程调试端口，
-     等你登录后通过 DevTools 协议读出该站点 Cookie，写到 ~/.kukuai/cookies.json。
-     不读取你日常浏览器的配置，不安装任何浏览器扩展。
+原理：按系统里登记的默认浏览器启动一个临时配置的窗口，打开远程调试端口，
+     登录后通过 DevTools 协议读出 Cookie。不碰日常浏览器数据，不装扩展，不上传。
 
-命令行可用参数：
-    --port 9222      远程调试端口
-    --no-browser     不自动启动浏览器（自行用 --remote-debugging-port 打开）
-    --out <路径>     Cookie 输出路径
-    --timeout 300    等待登录的秒数
+命令行：
+    --port 9222      调试端口
+    --no-browser     不自动启动浏览器
+    --out <路径>     Cookie 输出路径（默认 ~/.kukuai/cookies.json）
+    --timeout 600    等待登录秒数
+    --no-clipboard   不复制到剪贴板
+    --selftest       只做环境检查
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -34,7 +36,8 @@ TARGET_URL = "https://www.kukuai.cn/"
 COOKIE_HOSTS = ["https://www.kukuai.cn/", "https://kuku.baidu.com/", "https://baidu.com/"]
 DEFAULT_OUT = "~/.kukuai/cookies.json"
 
-CHROME_CANDIDATES = [
+# 默认浏览器拿不到时按顺序退化的候选
+FALLBACK_BROWSERS = [
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",
     r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
     os.path.expandvars(r"%LOCALAPPDATA%\Google\Chrome\Application\chrome.exe"),
@@ -42,9 +45,17 @@ CHROME_CANDIDATES = [
     r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
 ]
 
+LAUNCH_ARGS = [
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--remote-allow-origins=*",
+    "--start-maximized",
+]
 
+
+# ---------------------------------------------------------------- 基础
 def _setup_console():
-    """打包成 exe 后控制台默认是 GBK，中文会乱码，强制切 UTF-8。"""
+    """打包成 exe 后控制台默认 GBK，中文会乱码，强制切 UTF-8。"""
     if os.name != "nt":
         return
     try:
@@ -65,7 +76,6 @@ def info(msg):
 
 
 def popup(title, text):
-    """Windows 下弹个消息框；其它平台只打印。"""
     try:
         import ctypes
         ctypes.windll.user32.MessageBoxW(0, text, title, 0x40)
@@ -75,13 +85,74 @@ def popup(title, text):
     info("[%s] %s" % (title, text))
 
 
-def find_browser():
-    for p in CHROME_CANDIDATES:
-        if p and Path(p).exists():
-            return p
-    return None
+def copy_to_clipboard(text) -> bool:
+    """Unicode 剪贴板，走 ctypes，避免 clip.exe 的编码坑。"""
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        k32 = ctypes.windll.kernel32
+        u32 = ctypes.windll.user32
+        k32.GlobalAlloc.restype = wintypes.HGLOBAL
+        k32.GlobalAlloc.argtypes = [wintypes.UINT, ctypes.c_size_t]
+        k32.GlobalLock.restype = wintypes.LPVOID
+        k32.GlobalLock.argtypes = [wintypes.HGLOBAL]
+        k32.GlobalUnlock.argtypes = [wintypes.HGLOBAL]
+        u32.SetClipboardData.argtypes = [wintypes.UINT, wintypes.HANDLE]
+        u32.SetClipboardData.restype = wintypes.HANDLE
+
+        data = text.encode("utf-16-le") + b"\x00\x00"
+        if not u32.OpenClipboard(0):
+            return False
+        try:
+            u32.EmptyClipboard()
+            h = k32.GlobalAlloc(0x0002, len(data))  # GMEM_MOVEABLE
+            if not h:
+                return False
+            p = k32.GlobalLock(h)
+            ctypes.memmove(p, data, len(data))
+            k32.GlobalUnlock(h)
+            u32.SetClipboardData(13, h)  # CF_UNICODETEXT
+            return True
+        finally:
+            u32.CloseClipboard()
+    except Exception:
+        return False
 
 
+# ---------------------------------------------------------------- 浏览器
+def default_browser_exe():
+    """从注册表读系统的默认浏览器 exe。"""
+    if os.name != "nt":
+        return None, None
+    try:
+        import winreg
+        key = r"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\https\UserChoice"
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, key) as k:
+            progid = winreg.QueryValueEx(k, "ProgId")[0]
+        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, progid + r"\shell\open\command") as k:
+            cmd = winreg.QueryValueEx(k, "")[0]
+        m = re.match(r'"([^"]+?\.exe)"', cmd, re.I) or re.match(r"(\S+?\.exe)", cmd, re.I)
+        if m:
+            p = Path(m.group(1))
+            if p.exists():
+                return p, progid
+    except Exception:
+        pass
+    return None, None
+
+
+def fallback_browsers():
+    return [Path(p) for p in FALLBACK_BROWSERS if p and Path(p).exists()]
+
+
+def is_firefox(exe: Path) -> bool:
+    return (exe.name or "").lower() in ("firefox.exe",)
+
+
+# ---------------------------------------------------------------- CDP
 def port_open(port):
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(0.5)
@@ -94,7 +165,7 @@ def cdp_json(port, path):
         return json.loads(r.read().decode())
 
 
-def wait_port(port, timeout=20):
+def wait_port(port, timeout=25):
     end = time.time() + timeout
     while time.time() < end:
         if port_open(port):
@@ -109,7 +180,7 @@ def wait_port(port, timeout=20):
 
 class CDP:
     def __init__(self, ws_url):
-        import websocket  # websocket-client
+        import websocket
         self.ws = websocket.create_connection(ws_url, timeout=15, suppress_origin=True)
         self.mid = 0
 
@@ -128,12 +199,11 @@ class CDP:
             pass
 
 
+# ---------------------------------------------------------------- 主流程
 def normalize(cookies):
-    """统一成脚本能吃的数组格式，按站点补全 domain。"""
     out = []
     for c in cookies:
-        name = c.get("name")
-        value = c.get("value")
+        name, value = c.get("name"), c.get("value")
         if not name or value is None:
             continue
         dom = c.get("domain") or ".kukuai.cn"
@@ -149,63 +219,81 @@ def normalize(cookies):
 
 
 def has_login(cookies):
-    names = {c.get("name") for c in cookies}
-    return "BDUSS" in names
+    return "BDUSS" in {c.get("name") for c in cookies}
+
+
+def launch(exe: Path, port: int, profile: Path):
+    return subprocess.Popen([str(exe), "--remote-debugging-port=%d" % port,
+                             "--user-data-dir=%s" % profile] + LAUNCH_ARGS + [TARGET_URL])
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="库库AI Cookie 抓取")
     ap.add_argument("--port", type=int, default=9222)
     ap.add_argument("--out", default=DEFAULT_OUT)
-    ap.add_argument("--timeout", type=int, default=600, help="等待登录秒数，默认 600")
+    ap.add_argument("--timeout", type=int, default=600)
     ap.add_argument("--no-browser", action="store_true")
-    ap.add_argument("--selftest", action="store_true", help="只做环境检查后退出")
+    ap.add_argument("--no-clipboard", action="store_true")
+    ap.add_argument("--selftest", action="store_true")
     args = ap.parse_args(argv)
     _setup_console()
 
-    info("=" * 46)
-    info(" 库库AI Cookie 抓取工具")
-    info("=" * 46)
-
-    browser = None
-    if not args.no_browser:
-        browser = find_browser()
-        if not browser:
-            popup("缺少浏览器", "没找到 Chrome 或 Edge。\n请先装 Microsoft Edge 再运行本工具。")
-            return 2
-        info("使用浏览器: %s" % browser)
+    info("=" * 52)
+    info("  库库AI Cookie 抓取")
+    info("=" * 52)
 
     if args.selftest:
-        info("selftest ok; browser=%s" % (browser or "not-required"))
+        db, prog = default_browser_exe()
+        info("默认浏览器: %s (%s)" % (db or "未读到", prog or "-"))
+        info("候选兜底: %s" % [str(p) for p in fallback_browsers()])
+        info("selftest ok")
         return 0
 
     profile = Path(os.environ.get("TEMP", "/tmp")) / "kukuai-cookie-profile"
-    proc = None
+    shutil.rmtree(profile, ignore_errors=True)
+
+    procs = []
     if not args.no_browser:
+        db, prog = default_browser_exe()
+        order = []
+        if db and not is_firefox(db):
+            order.append(db)
+        order += [b for b in fallback_browsers() if b not in order]
+
+        if not order:
+            popup("没有可用浏览器",
+                  "没读到默认浏览器，也没找到 Chrome / Edge。\n先装一个浏览器再运行本工具。")
+            return 2
+
         info("")
-        info(">>> 马上会打开一个浏览器窗口")
-        info(">>> 请用你的百度账号登录，登录成功后不用管，工具会自动保存并关窗")
+        info(">>> 将用你的默认浏览器打开窗口：%s" % (str(db) if db else order[0]))
+        info(">>> 请用百度账号登录库库AI，登录成功后不用管，工具会自动保存")
         info("")
-        # 独立临时配置，不动你日常浏览器的数据
-        if profile.exists():
+
+        ok = False
+        for exe in order:
+            info("启动: %s" % exe)
+            procs.append(launch(exe, args.port, profile))
+            if wait_port(args.port, 18):
+                ok = True
+                break
+            info("这个浏览器没起来调试端口，换下一个……")
+            try:
+                procs[-1].terminate()
+            except Exception:
+                pass
             shutil.rmtree(profile, ignore_errors=True)
-        proc = subprocess.Popen([
-            browser,
-            "--remote-debugging-port=%d" % args.port,
-            "--user-data-dir=%s" % profile,
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--remote-allow-origins=*",
-            "--start-maximized",
-            TARGET_URL,
-        ])
+        if not ok:
+            popup("启动失败",
+                  "浏览器调试端口没起来。\n可能被安全软件拦了，关掉杀软后重试。")
+            return 3
 
     try:
-        if not wait_port(args.port, 25):
-            popup("启动失败", "浏览器调试端口没起来。\n可能被安全软件拦了，关掉杀软后重试。")
+        if args.no_browser and not wait_port(args.port, 5):
+            popup("没连上浏览器", "指定端口 %d 上没有浏览器在调试模式运行。" % args.port)
             return 3
-        info("浏览器已就绪，等待登录……")
 
+        info("浏览器已就绪，等待登录……")
         deadline = time.time() + args.timeout
         cookies = []
         while time.time() < deadline:
@@ -217,8 +305,10 @@ def main(argv=None):
             page = None
             for t in targets:
                 if t.get("type") == "page" and t.get("webSocketDebuggerUrl"):
-                    if "kukuai.cn" in (t.get("url") or "") or page is None:
+                    if "kukuai.cn" in (t.get("url") or ""):
                         page = t
+                        break
+                    page = page or t
             if not page:
                 time.sleep(1)
                 continue
@@ -230,31 +320,42 @@ def main(argv=None):
             except Exception:
                 time.sleep(1)
                 continue
-
             if has_login(cookies):
                 info("检测到登录态，正在保存……")
                 break
             time.sleep(2)
         else:
-            popup("超时", "等了 %d 秒还没检测到登录。\n再运行一次，登录后别急着关浏览器。" % args.timeout)
+            popup("超时", "等了 %d 秒还没检测到登录。\n重新运行一次，登录后别急着关浏览器。" % args.timeout)
             return 4
 
         data = normalize(cookies)
         out_path = Path(os.path.expanduser(args.out))
         out_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
         out_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
-        info("已保存 %d 条 Cookie 到 %s" % (len(data), out_path))
-        popup("完成", "Cookie 已保存到：\n%s\n\n共 %d 条，现在可以去跑签到了。" % (out_path, len(data)))
+        copied = False if args.no_clipboard else copy_to_clipboard(payload)
+
+        info("")
+        info("已保存 %d 条 Cookie → %s" % (len(data), out_path))
+        if copied:
+            info("已复制到剪贴板 ✅  直接粘贴到 Agent 对话里发过去即可")
+        else:
+            info("（剪贴板写入失败，可从上面的文件里复制）")
+        popup("完成",
+              ("Cookie 已保存并复制到剪贴板 ✅\n\n"
+               if copied else "Cookie 已保存 ✅\n\n")
+              + "文件：%s\n条数：%d\n\n" % (out_path, len(data))
+              + "现在直接粘贴到 Agent 对话里发过去即可。")
         return 0
     finally:
-        if proc is not None:
+        for p in procs:
             try:
-                proc.terminate()
+                p.terminate()
             except Exception:
                 pass
-            time.sleep(1)
-            shutil.rmtree(profile, ignore_errors=True)
+        time.sleep(1)
+        shutil.rmtree(profile, ignore_errors=True)
 
 
 if __name__ == "__main__":
