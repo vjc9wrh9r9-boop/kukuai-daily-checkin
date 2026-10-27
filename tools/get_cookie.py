@@ -537,9 +537,9 @@ class CookieApp:
 
         root.title("%s v%s" % (APP_TITLE, APP_VERSION))
         root.configure(bg=COLORS["bg"])
-        root.geometry("600x560")
-        root.minsize(560, 520)
-        self._center(root, 600, 560)
+        root.geometry("600x640")
+        root.minsize(560, 600)
+        self._center(root, 600, 640)
         self._dpi_aware()
         root.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -584,7 +584,7 @@ class CookieApp:
         # 标题
         tk.Label(wrap, text="库库AI Cookie 抓取工具", bg=COLORS["bg"], fg=COLORS["text"],
                  font=(font, 17, "bold"), anchor="w").pack(fill="x")
-        tk.Label(wrap, text="点按钮打开网页登录一次，抓到后复制给 Agent 即可。不装扩展、不上传、不碰你日常浏览器数据。",
+        tk.Label(wrap, text="点第 ① 个按钮打开网页登录一次，抓到后点第 ② 个按钮复制给 Agent。不装扩展、不上传。",
                  bg=COLORS["bg"], fg=COLORS["sub"], font=(font, 9), anchor="w",
                  justify="left", wraplength=540).pack(fill="x", pady=(4, 14))
 
@@ -596,6 +596,16 @@ class CookieApp:
             relief="flat", bd=0, cursor="hand2", pady=13,
             command=self.on_run)
         self.btn_run.pack(fill="x")
+
+        # 登录入口提示（页面上没有明显的「登录」二字，必须写清楚点哪里）
+        hint = tk.Frame(wrap, bg="#fff8e6")
+        hint.pack(fill="x", pady=(8, 0))
+        tk.Label(
+            hint,
+            text="打开网页后怎么登录：点页面上的「在线使用库库AI」；\n"
+                 "找不到就点网页右上角的「网页版登录」，用百度账号扫码或密码登录。",
+            bg="#fff8e6", fg="#8a6d1f", font=(font, 9), anchor="w", justify="left",
+            wraplength=525, padx=12, pady=8).pack(fill="x")
 
         # 按钮 2
         self.btn_copy = tk.Button(
@@ -721,8 +731,8 @@ class CookieApp:
                 return
 
             self._ui(self.set_status,
-                     "浏览器已打开，请用百度账号登录库库AI —— 登录成功后会自动抓取，不用管。", "work")
-            self._ui(self.log, "浏览器已就绪，等待登录…")
+                     "浏览器已打开 —— 在网页里点「在线使用库库AI」或右上角「网页版登录」，登录成功后会自动抓取。", "work")
+            self._ui(self.log, "浏览器已就绪：点「在线使用库库AI」或右上角「网页版登录」")
 
             # 轮询 cookie
             start = time.time()
@@ -753,8 +763,7 @@ class CookieApp:
                 if elapsed >= next_tick:
                     next_tick = elapsed + 3
                     self._ui(self.set_status,
-                             "已等待 %d 秒 —— 请在上面的浏览器窗口里用百度账号登录库库AI，"
-                             "登录成功后会自动抓取。" % elapsed, "work")
+                             "已等待 %d 秒 —— 在浏览器里点「在线使用库库AI」或右上角「网页版登录」，登录成功后会自动抓取。" % elapsed, "work")
                 time.sleep(1.5)
 
             self._ui(self._fail, "等了 %d 分钟还没检测到登录。重新点第 ① 个按钮，登录后别急着关窗口。"
