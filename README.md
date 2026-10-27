@@ -58,22 +58,21 @@ python -m playwright install chromium
 
 也可以直接下载 [Release](https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases) 里的 zip 解压到 skills 目录。
 
-## 拿 Cookie（用自带工具，别按 F12）
+## 拿 Cookie（一个 exe，别按 F12）
 
-**不想解压 / Agent 打不开 zip**：直接下这一个文件（双击即用，不用解压）
-<https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.2/GetCookie.exe>
+技能包**不再内置**这个 exe（11MB，云端 Agent 跑不了 Windows GUI，还容易在机器上留旧副本）。
+下载这一个文件就行，双击即用、不用解压：
 
-或者双击 `tools/GetCookie.exe`：
+<https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe>
 
-1. 点 **① 打开网页登录库库AI，抓取 Cookie** → 用系统默认浏览器打开工作台 → 点左下角签到卡「登录领奖」登录
-2. 状态条变绿（工作台已确认登录）→ 点 **② 复制已抓取的 Cookie**
-3. 粘贴给 AI，或让脚本自己用（默认存 `~/.kukuai/cookies.json`，只有 `BDUSS` + `STOKEN` 两条）
+1. 点 **① 打开网页登录库库AI，抓取 Cookie** → 在打开的网页里点左下角签到卡「登录领奖」登录
+2. 状态条变绿（标注了登录域）→ 点 **② 复制已抓取的 Cookie** → 粘贴给 AI
 
-> 手动 F12 复制经常漏 `STOKEN`，漏了必然登录失败。
+> 本机 Agent 也可以 `python tools/fetch_tool.py` 自动下到 `tools/`，再用 `explorer.exe` 拉起。
 
-> **状态条显示「已复制 2 条」才是对的**。如果出现「已复制 14 条」，说明登录写到了 `.kukuai.cn`
-> 域（活动页不认），工具会提示你切到 `kuku.baidu.com/app` 标签页点「登录领奖」重登。
-> v3.8.0 起接口不说「已登录」就不会保存。
+> **2 条 / 14 条都正常**：2 条是 `kuku.baidu.com` 登录，14 条是 `www.kukuai.cn` 登录；
+> 同一账号、同一份进度，脚本会自动选对入口（`--dry-run` 的 `base_host` 可查）。
+> v3.8.1 起必须接口 `errno=0` 才保存，不会再「说成功其实没登录」。
 
 ## 用法
 
