@@ -63,7 +63,11 @@ python -m playwright install chromium
 技能包**不再内置**这个 exe（11MB，云端 Agent 跑不了 Windows GUI，还容易在机器上留旧副本）。
 下载这一个文件就行，双击即用、不用解压：
 
+直链（不用登录 GitHub）：
 <https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe>
+
+国内打不开就走镜像（同样不用登录）：
+<https://gh-proxy.com/https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe>
 
 1. 点 **① 打开网页登录库库AI，抓取 Cookie** → 在打开的网页里点左下角签到卡「登录领奖」登录
 2. 状态条变绿（标注了登录域）→ 点 **② 复制已抓取的 Cookie** → 粘贴给 AI
