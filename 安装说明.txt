@@ -3,7 +3,7 @@
   抓 Cookie 用 tools\GetCookie.exe，两个按钮就够，不要手动按 F12 复制。
   （手动复制经常漏 STOKEN，漏了必然登录失败）
 
-库库AI 签到 + 每日任务 v4.0.2
+库库AI 签到 + 每日任务 v4.0.3
 
 用你自己的 Cookie，在无头浏览器里完成：签到、聊热门话题、逛 10 秒知识广场、
 召唤专家、上传一次本地文件（可选）、导入一次网盘文件（需先授权）。
@@ -20,20 +20,19 @@
   路径只用英文数字，中文目录可能触发某些 Agent 的技能路径保护。
 
 二、拿到 Cookie（两个按钮，最省事）
-  双击 tools\GetCookie.exe（也可以让 Agent 直接帮你打开）
-  嫌解压麻烦 / 是在手机上：直接下这个单文件（不用解压）
-    https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.2/GetCookie.exe
+  包里不带 exe（11MB，云端 Agent 也跑不了 Windows GUI）。下载这一个文件，双击即用、不用解压：
+    https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases/download/v4.0.3/GetCookie.exe
+  （本机 Agent 也可以执行 python tools\fetch_tool.py 自动下到 tools\）
+
     打开后是一个小窗口，不会自己开网页，只有两个按钮：
 
     ① 打开网页登录库库AI，抓取 Cookie
        → 用你系统的默认浏览器弹一个窗口（独立临时配置，不动日常浏览器数据）
-       → 浏览器会停在网页版工作台 https://kuku.baidu.com/app（邀请页另开一个标签，不用管）
+       → 浏览器会停在网页版工作台（kuku.baidu.com/app 或 www.kukuai.cn/app）
        → 登录入口：点左下角签到卡上的「登录领奖」（或右上角头像），用百度账号扫码或密码登录
-       → 注意：签到活动只认 kuku.baidu.com 这个域的登录态，
-         只登录 www.kukuai.cn 会出现「登录成功但签到打不开」
-       → 登录成功后会调用工作台接口复核，确认已登录才保存，状态条变绿：「抓取成功（工作台已确认登录）」
-       → 复核没过会变红并说明原因（如「工作台接口一直返回未登录，登录可能没真正完成」）
-       → 判断登录成功的标志：网页右上角出现头像、签到卡不再显示「登录领奖」
+       → 两个入口都算数：kuku.baidu.com 域存 2 条，www.kukuai.cn 域存 14 条，同一账号、同一份进度
+       → 登录成功后会调工作台接口复核，确认已登录才保存，状态条变绿并标注「登录域」
+       → 复核没过会变红并说明原因
 
     ② 复制已抓取的 Cookie
        → 点一下就复制到剪贴板，状态条显示「已复制 N 条，去 Agent 对话里 Ctrl+V」
