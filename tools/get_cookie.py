@@ -58,7 +58,7 @@ COOKIE_HOSTS = ["https://kuku.baidu.com/", "https://baidu.com/", "https://passpo
 REQUIRED_COOKIES = [("BDUSS", "baidu.com"), ("STOKEN", "kuku.baidu.com")]
 
 APP_TITLE = "库库AI Cookie 抓取工具"
-APP_VERSION = "3.8.1"
+APP_VERSION = "3.8.2"
 
 # 默认浏览器拿不到时按顺序退化的候选
 FALLBACK_BROWSERS = [
@@ -483,7 +483,40 @@ def navigate(port, url):
         return False
 
 
-def check_login_any(port):
+def has_bduss(cookies):
+    return any(c.get("name") == "BDUSS" for c in (cookies or []))
+
+
+def is_login_page(url):
+    u = (url or "").lower()
+    return any(k in u for k in ("passport.", "wappass", "/login", "openapi.baidu.com", "accounts."))
+
+
+def check_login_any(port, allow_navigate=False):
+    """只问当前页所在域；allow_navigate=True 时才切到另一个域试一次。
+
+    返回 (state, origin)。state 可能是 True / False / None（页面正在登录跳转，先别动）。
+    关键：登录页不要去碰，也不要每 3 秒来回导航——那样用户看到的就是「页面一直自己刷新」。
+    """
+    page = cdp_page(port)
+    cur = (page or {}).get("url") or ""
+    if is_login_page(cur):
+        return None, cur
+    cur_origin = "https://www.kukuai.cn" if "kukuai.cn" in cur else "https://kuku.baidu.com"
+    state = app_login_state(port, cur_origin)
+    if state is True or not allow_navigate:
+        return state, cur_origin
+    # 双保险：没有 BDUSS 说明还没真正登录，绝不导航（否则登录页会被打断）
+    if not has_bduss(read_cookies(port) or []):
+        return state, cur_origin
+    other = "https://kuku.baidu.com" if "kukuai" in cur_origin else "https://www.kukuai.cn"
+    navigate(port, other + "/app")
+    time.sleep(3.5)
+    st2 = app_login_state(port, other)
+    return (st2, other) if st2 is True else (state, cur_origin)
+
+
+def _old_check_login_any(port):
     """两个入口都问一遍：返回 (state, origin)。
 
     先查当前标签页所在域；不认就导航到另一个域再查（登录已经完成时才会走到这里）。
@@ -917,6 +950,7 @@ class CookieApp:
             next_tick = 0
             warned_baidu = False
             warned_domain = False
+            tried_other = False
             verify_fail = 0
             next_verify = 0.0
             while time.time() < deadline:
@@ -930,17 +964,16 @@ class CookieApp:
                 else:
                     lost = 0
                 cookies = read_cookies(self.port)
-                if cookies and not has_login(cookies) and has_kukuai_bduss(cookies) and not warned_baidu:
-                    warned_baidu = True
-                    self._ui(self.log, "看到 kukuai.cn 域的 BDUSS，但活动域(kuku.baidu.com)还没登录")
-                    self._ui(self.set_status,
-                             "这个窗口登录的是 kukuai.cn（活动页不认）。切到 kuku.baidu.com/app 标签页，"
-                             "点左下角签到卡「登录领奖」再登一次。", "fail")
-
                 # 只认工作台接口：True 才保存；False / None（接口没响应）都当没完成，继续等
                 if cookies and time.time() >= next_verify:
-                    next_verify = time.time() + 3
-                    state, origin = check_login_any(self.port)
+                    next_verify = time.time() + 4
+                    if not has_bduss(cookies):
+                        # 还没点登录/还没登完 —— 什么都别做，别去导航页面
+                        state, origin = None, ""
+                    else:
+                        state, origin = check_login_any(self.port, allow_navigate=not tried_other)
+                        if state is not True:
+                            tried_other = True   # 只切一次域，之后不再来回跳
                     if state is True:
                         again = read_cookies(self.port) or cookies
                         data, payload, minimal = save_cookies(again, self.out_path)
@@ -969,8 +1002,10 @@ class CookieApp:
                         verify_fail += 1
                         if verify_fail % 5 == 0:
                             self._ui(self.log, "接口仍返回未登录（第 %d 次），登录完成后会自动抓" % verify_fail)
+                    elif state is None:
+                        pass    # 登录页跳转中 / 接口没响应，安静等
                     else:
-                        self._ui(self.log, "工作台接口暂无响应，3 秒后重试")
+                        self._ui(self.log, "工作台接口暂无响应，4 秒后重试")
                 elapsed = int(time.time() - start)
                 if elapsed >= next_tick:
                     next_tick = elapsed + 3
