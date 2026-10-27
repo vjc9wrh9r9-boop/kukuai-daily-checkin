@@ -645,6 +645,12 @@ class Runner:
                 self.log("sign btn click failed: %s" % e)
 
         if not hit:
+            # 已签到时签到按钮可能整个消失，页面只留「今日已签」文案；
+            # 此时不能再按「签到」二字乱点（会点到侧栏导航），直接判已签
+            if any(k in self.flat() for k in (self.act.get("signed_markers") or [])):
+                self.result["actions"].append({"signin": "already(text)"})
+                self.log("sign button absent but signed marker found")
+                return True
             hit = self.click_texts(self.act.get("signin_texts", []), timeout=5000)
         if not hit and self.loc_click(self.sel.get("signin_cta"), timeout=5000):
             hit = "signin_cta"
