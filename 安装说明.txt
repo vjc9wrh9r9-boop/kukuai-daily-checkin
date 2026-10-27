@@ -1,4 +1,4 @@
-库库AI 签到 + 每日任务 v3.0.0
+库库AI 签到 + 每日任务 v3.2.0
 
 用你自己的 Cookie，在无头浏览器里完成：签到、聊 3 条热门话题、逛 10 秒知识广场。
 默认不做「召唤专家」（会弹用户协议，需本人同意后加 --with-expert）和邀请类任务（必须真人）。
@@ -9,21 +9,29 @@
     macOS:    ~/.workbuddy/skills/
   路径只用英文数字，中文目录可能触发某些 Agent 的技能路径保护。
 
-二、拿到 Cookie（推荐双击 exe）
+二、拿到 Cookie（两个按钮，最省事）
   双击 tools\GetCookie.exe（也可以让 Agent 直接帮你打开）
-    → 用你系统的默认浏览器弹出窗口，自动打开 kukuai.cn（独立临时配置，不动你日常浏览器的数据）
-    → 用你的百度账号登录（扫码/账号密码都行）
-    → 登录成功后不用管，2 秒内自动保存并关窗
-    → 弹窗显示「Cookie 已保存并复制到剪贴板」，直接粘贴到 Agent 对话里发过去即可
-    → 文件也存在 C:\Users\<用户名>\.kukuai\cookies.json（脚本默认读这里）
+    打开后是一个小窗口，不会自己开网页，只有两个按钮：
 
-  首次运行可能被 SmartScreen 拦：点「更多信息」→「仍要运行」。
-  工具只读取它自己那个临时浏览器窗口的 Cookie，不碰你日常浏览器的数据，不上传任何东西。
+    ① 打开网页登录库库AI，抓取 Cookie
+       → 用你系统的默认浏览器弹一个窗口（独立临时配置，不动日常浏览器数据）
+       → 打开登录页 https://kuku.baidu.com/home?invite_code=XUU5A9AB&...
+       → 你用百度账号登录（扫码/账号密码都行）
+       → 登录成功后自动保存，状态条变绿：「抓取成功，已保存 N 条 Cookie」，临时窗口自动关闭
+       → 失败会变红说明原因（没登录超时 / 窗口被关掉 / 浏览器起不来）
+
+    ② 复制已抓取的 Cookie
+       → 点一下就复制到剪贴板，状态条显示「已复制 N 条，去 Agent 对话里 Ctrl+V」
+       → 然后到 Agent 对话里粘贴发送即可
+
+    Cookie 同时存到 C:\Users\<用户名>\.kukuai\cookies.json（脚本默认读这里）。
+    首次运行可能被 SmartScreen 拦：点「更多信息」→「仍要运行」。
+    工具只读取它自己那个临时浏览器窗口的 Cookie，不碰你日常浏览器的数据，不上传任何东西。
 
   没有 exe 或想手工做：
-    1. 浏览器登录 https://www.kukuai.cn/
-    2. F12 → Application → Cookies → https://www.kukuai.cn
-    3. 复制 BDUSS、STOKEN 的值（BDUSS 是 HttpOnly，只能在这里复制）
+    1. 浏览器登录 https://kuku.baidu.com/home（或 https://www.kukuai.cn/）
+    2. F12 → Application → Cookies → 对应的域
+    3. 复制 BDUSS 的值（HttpOnly，只能在这里复制；有 STOKEN 就一起复制）
     4. 存成 C:\Users\<用户名>\.kukuai\cookies.json：
          {"BDUSS":"你的值","STOKEN":"你的值"}
 
