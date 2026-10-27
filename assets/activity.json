@@ -1,0 +1,166 @@
+{
+  "id": "kuku-signin-2026q4",
+  "name": "每日签到得网盘SVIP月卡 · 做任务抽好礼 赢苹果笔记本",
+  "short_name": "任务中心：送网盘SVIP，抽苹果电脑",
+  "start": "2026-10-21",
+  "end": "2026-12-04",
+  "cycle_days": 30,
+  "break_resets": true,
+  "platforms": [
+    "库库PC客户端",
+    "库库网页版",
+    "库库手机端"
+  ],
+  "platforms_synced": true,
+  "daily_reward": {
+    "points": 10,
+    "lottery": 1,
+    "note": "活动页日历每个格子标注「+10」与「抽奖+1」（实测）"
+  },
+  "nodes": [
+    {
+      "day": 3,
+      "reward": "网盘SVIP天卡"
+    },
+    {
+      "day": 7,
+      "reward": "网盘SVIP卡（页面公示为准）"
+    },
+    {
+      "day": 15,
+      "reward": "网盘SVIP卡（页面公示为准）"
+    },
+    {
+      "day": 30,
+      "reward": "网盘SVIP月卡（必得）"
+    }
+  ],
+  "selectors": {
+    "signin_card": "[data-testid=\"signin-promo\"]",
+    "signin_cta": "[data-testid=\"signin-promo-cta\"]",
+    "signin_title": "[data-testid=\"signin-promo-title\"]",
+    "signin_subtitle": "[data-testid=\"signin-promo-subtitle\"]",
+    "signin_close": "[data-testid=\"signin-promo-close\"]",
+    "activity_banner": "button.activity-banner",
+    "activity_dialog_close": "[data-testid=\"activity-dialog-close\"]",
+    "task_center_iframe": "iframe.signin-center-iframe",
+    "signin_btn": "button.pc-sign-btn",
+    "calendar_all_btn": "button.pc-sign-cal__all-btn",
+    "task_card": ".pc-kuku-task-card",
+    "task_card_title": ".pc-kuku-task-card__title",
+    "task_card_action": ".pc-kuku-task-card__action",
+    "task_card_btn": ".pc-kuku-task-card__btn",
+    "expert_card": "article.expert-card",
+    "expert_summon": "召唤"
+  },
+  "frame_url_hint": "kukuPcSignAct",
+  "task_center_url": "https://kuku.baidu.com/operation/activitys/kukuPcSignAct/main",
+  "login_negative_markers": [
+    "登录领网盘会员",
+    "登录领取网盘SVIP",
+    "登录领奖",
+    "登录后领取连签奖励",
+    "立即登录",
+    "百度账号登录",
+    "登录/注册",
+    "登录 / 注册",
+    "扫码登录"
+  ],
+  "login_positive_markers": [
+    "退出登录",
+    "退出账号",
+    "个人中心"
+  ],
+  "entry_texts": [
+    "每日签到 必得网盘会员月卡",
+    "查看全部日历",
+    "去抽奖",
+    "立即签到",
+    "登录领奖"
+  ],
+  "signin_texts": [
+    "立即签到",
+    "今日签到",
+    "点击签到",
+    "登录领奖",
+    "签到"
+  ],
+  "signed_markers": [
+    "今日已签",
+    "今天已签",
+    "已签到",
+    "今日已领取",
+    "明日再来",
+    "明天再来"
+  ],
+  "activity_markers": [
+    "做任务领积分抽好礼",
+    "连签3天",
+    "查看全部日历",
+    "去抽奖",
+    "距离活动结束"
+  ],
+  "tasks": [
+    {
+      "key": "topic_chat",
+      "name": "与库库聊聊热门话题",
+      "limit": 3,
+      "reward": "抽奖+1（积分奖励以页面实时展示为准）",
+      "auto": "chat",
+      "actions": [
+        "去完成",
+        "去聊聊",
+        "立即完成"
+      ]
+    },
+    {
+      "key": "expert_chat",
+      "name": "召唤任意专家并发起对话",
+      "limit": 1,
+      "reward": "抽奖+1（积分奖励以页面实时展示为准）",
+      "auto": "expert",
+      "actions": [
+        "去完成",
+        "去召唤",
+        "立即完成"
+      ]
+    },
+    {
+      "key": "browse_square",
+      "name": "浏览10s知识广场",
+      "limit": 1,
+      "reward": "抽奖+1",
+      "auto": "square",
+      "actions": [
+        "去完成",
+        "去浏览",
+        "立即完成"
+      ]
+    },
+    {
+      "key": "invite_pc",
+      "name": "邀请新用户下载登录库库PC端",
+      "limit": null,
+      "reward": "网盘SVIP天卡、库库积分+20、抽奖+1",
+      "auto": "manual",
+      "actions": [
+        "邀请好友"
+      ]
+    },
+    {
+      "key": "invite_chat",
+      "name": "邀请好友与库库对话",
+      "limit": 10,
+      "reward": "库库积分+5、抽奖+1",
+      "auto": "manual",
+      "actions": [
+        "邀请好友"
+      ]
+    }
+  ],
+  "notes": [
+    "任务清单实测：邀请新用户下载登录库库PC端、与库库聊聊热门话题(0/3)、邀请好友与库库对话(0/10)、召唤任意专家并发起对话、浏览10s知识广场，共 5 张卡",
+    "部分账号还会多出「下载并登录库库PC客户端」，需装 PC 客户端，不做自动化",
+    "日历支持补签（标「补」的历史日期），脚本不自动补签"
+  ]
+}

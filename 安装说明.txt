@@ -1,0 +1,42 @@
+库库AI 每日签到 · 云端自动签到 Skill（v2.1.0）
+适用活动：2026-10-21 ~ 2026-12-04「每日签到得网盘SVIP月卡 · 做任务抽好礼 赢苹果笔记本」
+
+一、装到哪
+  把整个 kukuai-daily-checkin 文件夹放到：
+    Windows:  C://Users//<你的用户名>//.workbuddy//skills//
+    macOS:    ~/.workbuddy/skills/
+  即最终路径形如 .../skills/kukuai-daily-checkin/SKILL.md
+  放好后重启 WorkBuddy，说「帮我签到」即可触发。
+
+二、准备自己的 Cookie（必须，每人用自己的）
+  1. Chrome/Edge 登录 https://www.kukuai.cn/
+  2. F12 → Application（应用）→ Cookies → https://www.kukuai.cn
+  3. 复制 BDUSS、STOKEN 的值（BDUSS 是 HttpOnly，必须在面板里复制）
+  4. 存成 C://Users//<你的用户名>//.kukuai//cookies.json，最简写法：
+       {"BDUSS":"你的值","STOKEN":"你的值"}
+  提示：活动内容在 kuku.baidu.com 域下，只导 .kukuai.cn 有时会判定未登录，
+        建议两个域各导一份，或按 assets/cookie.example.json 的数组格式写两条。
+
+三、跑
+  # 首次：只探测，不签到
+  python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --dry-run --probe-entry
+  # 正式
+  python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json
+
+四、常用参数
+  --only-signin                只签到，不清任务
+  --tasks topic_chat,browse_square   只跑指定任务
+  --headful                    显示浏览器窗口（排查用）
+  --state <路径>               自定义连签状态文件（默认 ~/.kukuai/state.json）
+
+五、依赖
+  pip install playwright
+  python -m playwright install chromium
+
+六、说明
+  - 脚本只操作你自己账号的签到与官方公示任务，不涉及邀请类任务（需真人）。
+  - 「召唤任意专家」会弹《库库 AI 用户协议》，脚本会代点「我已阅读并同意」，
+    不想要就用 --tasks 排除 expert_chat。
+  - 平台规则禁止脚本/插件等自动化工具，是否使用请自行判断。
+  - 遇到验证码/滑块会立即停止，需人工处理。
+  - 不要把 Cookie 发给别人，它等同账号密码。

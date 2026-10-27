@@ -1,0 +1,12 @@
+# 运行产物
+outputs/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+
+# 凭据，绝不入库
+cookies.json
+.kukuai/
+state.json

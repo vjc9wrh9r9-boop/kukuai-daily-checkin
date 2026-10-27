@@ -1,0 +1,16 @@
+[
+  {
+    "name": "BDUSS",
+    "value": "把这里替换成你从浏览器导出的真实值",
+    "domain": ".kukuai.cn",
+    "path": "/",
+    "httpOnly": true,
+    "secure": true
+  },
+  {
+    "name": "STOKEN",
+    "value": "把这里替换成你从浏览器导出的真实值",
+    "domain": ".kukuai.cn",
+    "path": "/"
+  }
+]
