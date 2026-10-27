@@ -1,9 +1,10 @@
 # 库库AI 每日签到 Skill
 
-> 库库AI（[kukuai.cn](https://www.kukuai.cn/)）每日签到 + 每日任务的云端自动化。
+> 库库AI（[kuku.baidu.com](https://kuku.baidu.com/app)）每日签到 + 每日任务的自动化。
 > 当前适配 **2026-10-21 ~ 2026-12-04** 期活动：**每日签到得网盘SVIP月卡 · 做任务抽好礼 赢苹果笔记本**。
 
-用自己导出的登录 Cookie，在无头浏览器里完成签到与任务，输出 JSON + Markdown 汇总。不需要本机浏览器常驻，也不需要开 PC 客户端。
+用你自己的登录 Cookie，在无头浏览器里完成签到与任务，输出**接口核验过的**进度 + Markdown 汇总。
+不需要本机浏览器常驻，也不需要开 PC 客户端。
 
 ## 这期活动是什么
 
@@ -13,110 +14,98 @@
 | 核心奖励 | 连签 **30 天必得**百度网盘 SVIP 月卡；连签 3 / 7 / 15 天解锁前置档位 |
 | 每日签到 | 积分 +10、抽奖 +1 |
 | 断签 | 清零回第 1 天，已发奖品不回收 |
-| 多端 | PC 客户端 / 网页版 / 手机端签到天数互通 |
+| 多端 | 签到天数各端同步；**每日任务进度不同步**（见下） |
+
+## ⚠️ 最重要的一件事：任务分两套进度
+
+| 渠道 | `task_from` | 任务数 | 谁看得到 |
+| --- | --- | --- | --- |
+| 网页端 | `kuku_signin_30_web` | 6 | 浏览器打开 kuku.baidu.com |
+| PC 客户端 | `kuku_signin_30_pc` | 7（多「导入网盘文件」「上传本地文件」） | 库库AI 桌面客户端的任务中心 |
+
+**网页端做完了，客户端里仍然是 0/3。** 旧版只做网页端，所以会出现「脚本说完成了、界面没动」。
+v4 会两个渠道都做、都上报、都核验，结果里分别给出「网页端 x/6」「PC客户端 x/7」。
 
 ## 能自动做什么
 
-| 任务 | 上限 | 脚本 |
-| --- | --- | --- |
-| 每日签到 | 1/天 | ✅ |
-| 与库库聊聊热门话题 | 3/天 | ✅ 按剩余次数发对话 |
-| 召唤任意专家并发起对话 | 1 | ⚠️ 默认跳过，需 `--with-expert` |
-| 浏览 10s 知识广场 | 1 | ✅ 停留 12 秒 |
-| 邀请新用户下载登录库库PC端 | — | ❌ 需真人邀请 |
-| 邀请好友与库库对话 | 10 | ❌ 需真人邀请 |
+| 任务 | 上限 | 出现在 | 脚本 |
+| --- | --- | --- | --- |
+| 每日签到 | 1/天 | 两端 | ✅ 账号级，签一次两端都算 |
+| 与库库聊聊热门话题 | 3/天 | 两端 | ✅ 每条一个新会话 + 上报 |
+| 召唤任意专家并发起对话 | 1 | 两端 | ✅ 首次需勾协议（`--with-expert`） |
+| 浏览 10s 知识广场 | 1 | 两端 | ✅ 停留 14s 后上报 |
+| 去上传一次本地文件 | 1 | 仅客户端 | ✅ 传一个占位 txt（`--no-upload` 可关） |
+| 去导入一次网盘文件 | 1 | 仅客户端 | ⚠️ 需先授权百度网盘（`--with-netdisk`） |
+| 下载并登录库库PC客户端 | 1 | 仅网页端 | ❌ 装一次客户端即可 |
+| 邀请类任务（2 个） | — | 两端 | ❌ 必须真人 |
 
-脚本会读任务卡上的 `(1/3)` 进度，只补剩余次数，重复跑不会重复发消息。
+进度以官方接口为准：
+
+- `GET /api/taskscore/tasklist?task_from=<渠道>` → `task_finish_count / task_count_max`
+- `POST /api/genflowpro/activity/taskcomplete` → `errno=0` 才算上报成功
 
 ## 安装
 
 ```bash
-# 1. 放到 skills 目录
 git clone https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin.git \
-  ~/.workbuddy/skills/kukuai-daily-checkin
+  ~/.workbuddy/skills/kukuai-checkin-tasks
 
-# Windows 对应路径：C:\Users\<用户名>\.workbuddy\skills\kukuai-daily-checkin
+# Windows：C:\Users\<用户名>\.workbuddy\skills\kukuai-checkin-tasks
 
-# 2. 依赖
 pip install playwright
 python -m playwright install chromium
 ```
 
-重启 WorkBuddy 后说「帮我签到」即可触发，也可以直接命令行运行。
+也可以直接下载 [Release](https://github.com/vjc9wrh9r9-boop/kukuai-daily-checkin/releases) 里的 zip 解压到 skills 目录。
 
-## 配置 Cookie
+## 拿 Cookie（用自带工具，别按 F12）
 
-签到依赖登录态，**每人用自己的账号**：
+双击 `tools/GetCookie.exe`：
 
-1. Chrome / Edge 登录 <https://www.kukuai.cn/>
-2. `F12` → Application（应用）→ Cookies → `https://www.kukuai.cn`
-3. 复制 `BDUSS`、`STOKEN` 的值（`BDUSS` 是 HttpOnly，必须在面板里复制，`document.cookie` 拿不到）
-4. 存成 `~/.kukuai/cookies.json`，最简写法：
+1. 点 **① 打开网页登录库库AI，抓取 Cookie** → 用系统默认浏览器打开工作台 → 点左下角签到卡「登录领奖」登录
+2. 状态条变绿（工作台已确认登录）→ 点 **② 复制已抓取的 Cookie**
+3. 粘贴给 AI，或让脚本自己用（默认存 `~/.kukuai/cookies.json`，只有 `BDUSS` + `STOKEN` 两条）
 
-```json
-{"BDUSS": "你的值", "STOKEN": "你的值"}
-```
-
-活动内容在 `kuku.baidu.com` 域下，只导 `.kukuai.cn` 有时会被判成未登录。稳妥做法是两个域各导一份，数组格式见 `assets/cookie.example.json`。
+> 手动 F12 复制经常漏 `STOKEN`，漏了必然登录失败。
 
 ## 用法
 
 ```bash
-# 首次：只探测，不签到、不点任务
-python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --dry-run --probe-entry
+# 只读看两端进度（不签到、不动任务）
+python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --dry-run
 
-# 正式：签到 + 清可自动任务
+# 正式：签到 + 两个渠道的每日任务
 python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json
 
-# 只签到
-python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --only-signin
+# 首次：顺带把专家协议 / 网盘授权也过一次（本人同意后再加）
+python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --with-expert --with-netdisk
 
-# 只跑指定任务
+# 只签到 / 只做某个渠道 / 只做某几项
+python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --only-signin
+python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --channels pc
 python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --tasks topic_chat,browse_square
 ```
 
-| 参数 | 默认 | 说明 |
-| --- | --- | --- |
-| `--cookies` | 自动查找 | `~/.kukuai/cookies.json`、`~/.kukuai/cookies.txt`、`uploads/kukuai_cookies.json` |
-| `--out` | `outputs` | 截图、Summary、日志目录 |
-| `--state` | `~/.kukuai/state.json` | 连签状态，用于断签预警 |
-| `--dry-run` | 关 | 只探测，不签到 |
-| `--probe-entry` | 关 | dry-run 时打开任务中心解析状态 |
-| `--no-signin` | 关 | 只清任务 |
-| `--no-tasks` / `--only-signin` | 关 | 只签到 |
-| `--tasks` | 全部 | `topic_chat,expert_chat,browse_square` |
-| `--headful` | 关 | 显示浏览器窗口（排查用） |
+| 参数 | 说明 |
+| --- | --- |
+| `--cookies` | Cookie 文件，默认依次找 `~/.kukuai/cookies.json` 等 |
+| `--dry-run` | 只读接口看进度 |
+| `--only-signin` / `--no-signin` | 只签到 / 只做任务 |
+| `--channels web\|pc` | 只做某个渠道（默认两个都做） |
+| `--with-expert` / `--with-netdisk` | 首次代勾专家协议 / 代点网盘授权 |
+| `--no-upload` | 不往网盘传占位文件 |
+| `--deadline` | 整体硬超时（默认 1200s），超时输出 `stage=timeout` |
 
-输出：`kukuai-summary-<时间>.md`（可直接转发给自己）+ `kukuai-*.png` 截图 + `log/`。
+输出：`kukuai-summary-<时间>.md` + 截图 + `log/`，JSON 里关键字段是 `task_board`（两端逐项进度）和 `channels`（完成度）。
 
-## 为什么脚本写成这样
+## 定时跑
 
-库库AI 这期活动有三处反常规结构，纯按文案点击会全部失败：
+- **Agent 自带的定时任务**：让 Agent 每天 09:00 跑一次，把 `task_board` 推给你（电脑/客户端不在线就不跑）
+- **GitHub Actions**：见 `references/cloud-mode.md` 里的 Actions 跑法，电脑关机也能跑
 
-1. **真正的活动页在 iframe 里** —— `iframe.signin-center-iframe` → `kuku.baidu.com/operation/activitys/kukuPcSignAct/main`。该地址单独打开 body 为空，必须从工作台点签到卡标题打开弹窗。
-2. **「去完成」是图片按钮** —— `<img class="pc-kuku-task-card__btn" src="btn_todo.png">`，DOM 里没有文字节点，只能靠图片名判状态（`btn_todo` / `btn_done` / `btn_invite`）。
-3. **会员弹窗遮罩** —— 首页加载弹一次、打开任务中心又弹一次，会拦掉真实鼠标点击（Playwright 报 `click timed out`）。脚本先点 `activity-dialog-close`，仍被拦时退化为 DOM 级 `element.click()`。
+## 已知边界
 
-另外「召唤任意专家」会弹《库库 AI 用户协议》，需要勾「我已阅读并同意」才会出现输入框。这一项**默认不做**——同意协议是你本人的行为，脚本不替你点；本人确认后加 `--with-expert` 才会代勾。
-
-更多细节见 `references/`。
-
-## 边界
-
-- 只操作用户本人账号的签到与官方公示任务，不涉及代签、刷量、多账号。
-- 遇到验证码 / 滑块 / 风控会立即停止，不尝试绕过。
-- 平台规则明确禁止脚本、插件、模拟器等自动化工具，**是否使用请自行判断并承担风险**。
-- Cookie 等同账号登录凭据，不要提交到仓库、不要发给别人。
-
-## 目录
-
-```
-SKILL.md                    Skill 主文件（触发词、工作流、排错表）
-安装说明.txt                 给人看的快速上手
-assets/activity.json        活动配置：周期、节点、选择器、任务清单（换期只改这里）
-assets/cookie.example.json  Cookie 格式示例
-references/checkin-rules.md 本期规则与页面结构实测
-references/cloud-mode.md    参数、输出、定时任务、实测记录
-references/changelog.md     版本变更
-scripts/kukuai_checkin.py   主脚本
-```
+- 邀请类任务需要真实好友点链接，脚本不做，这是能力边界不是 bug
+- 「上传本地文件」会往你的网盘传一个几百字节的占位 txt，不需要就加 `--no-upload`
+- 「导入网盘文件」要先在网页上点一次「确定授权」，之后 `--with-netdisk` 才能自动导入
+- 平台对脚本类工具有限制，是否使用请自行判断并承担风险；遇到验证码/风控脚本会立即停止
