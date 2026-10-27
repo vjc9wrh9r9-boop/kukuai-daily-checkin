@@ -1,21 +1,27 @@
-库库AI 每日签到 · 云端自动签到 Skill（v2.1.0）
+库库AI 每日签到 · 云端自动签到 Skill（v2.2.0）
 适用活动：2026-10-21 ~ 2026-12-04「每日签到得网盘SVIP月卡 · 做任务抽好礼 赢苹果笔记本」
 
 一、装到哪
-  把整个 kukuai-daily-checkin 文件夹放到：
-    Windows:  C://Users//<你的用户名>//.workbuddy//skills//
+  把解压出来的 kukuai-daily-checkin 文件夹放到：
+    Windows:  C:\Users\<你的用户名>\.workbuddy\skills\
     macOS:    ~/.workbuddy/skills/
-  即最终路径形如 .../skills/kukuai-daily-checkin/SKILL.md
+  最终路径形如 .../skills/kukuai-daily-checkin/SKILL.md
   放好后重启 WorkBuddy，说「帮我签到」即可触发。
+
+  ⚠️ 路径只用英文和数字。压缩包本身的中文文件名先改掉再解压，
+     某些 Agent 会对含中文/特殊字符的解压目录做路径保护，直接拒装。
 
 二、准备自己的 Cookie（必须，每人用自己的）
   1. Chrome/Edge 登录 https://www.kukuai.cn/
   2. F12 → Application（应用）→ Cookies → https://www.kukuai.cn
   3. 复制 BDUSS、STOKEN 的值（BDUSS 是 HttpOnly，必须在面板里复制）
-  4. 存成 C://Users//<你的用户名>//.kukuai//cookies.json，最简写法：
+  4. 存成 C:\Users\<你的用户名>\.kukuai\cookies.json，最简写法：
        {"BDUSS":"你的值","STOKEN":"你的值"}
   提示：活动内容在 kuku.baidu.com 域下，只导 .kukuai.cn 有时会判定未登录，
         建议两个域各导一份，或按 assets/cookie.example.json 的数组格式写两条。
+
+  Cookie 等同账号密码：只存本机，别发给任何人，别提交到仓库。
+  想放云端定时跑，就存在你自己仓库的加密 Secret 里（见 GitHub Actions 示例）。
 
 三、跑
   # 首次：只探测，不签到
@@ -26,17 +32,25 @@
 四、常用参数
   --only-signin                只签到，不清任务
   --tasks topic_chat,browse_square   只跑指定任务
+  --with-expert                连「召唤任意专家」也做（默认不做，见第五节）
   --headful                    显示浏览器窗口（排查用）
   --state <路径>               自定义连签状态文件（默认 ~/.kukuai/state.json）
 
-五、依赖
+五、这个脚本做了什么、不做什么
+  做：每日签到；「与库库聊聊热门话题」按剩余次数发对话；「浏览10s知识广场」停留 12 秒。
+  不做：
+    - 邀请类任务（邀请新用户、邀请好友对话）——必须真人；
+    - 「召唤任意专家」默认也不做 —— 点「召唤」会弹《库库 AI 用户协议》，
+      勾「我已阅读并同意」属于你本人的同意行为，脚本不替你点。
+      你自己看过协议、确认愿意后，加 --with-expert 才会代勾。
+  脚本只动你自己账号的签到与官方公示的任务，不涉及代签、刷量、多账号。
+
+六、依赖
   pip install playwright
   python -m playwright install chromium
 
-六、说明
-  - 脚本只操作你自己账号的签到与官方公示任务，不涉及邀请类任务（需真人）。
-  - 「召唤任意专家」会弹《库库 AI 用户协议》，脚本会代点「我已阅读并同意」，
-    不想要就用 --tasks 排除 expert_chat。
+七、说明
   - 平台规则禁止脚本/插件等自动化工具，是否使用请自行判断。
-  - 遇到验证码/滑块会立即停止，需人工处理。
-  - 不要把 Cookie 发给别人，它等同账号密码。
+  - 遇到验证码/滑块会立即停止，需人工处理，不绕过。
+  - 想每天自动跑又不占自己电脑，可以用 GitHub Actions 定时任务，
+    把 Cookie 存进自己仓库的加密 Secret，机器在跑完就销毁。
