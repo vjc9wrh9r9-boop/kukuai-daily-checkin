@@ -79,7 +79,8 @@ RISK_KEYWORDS = [
     "验证码", "拖动滑块", "滑块验证", "安全验证", "人机验证",
     "请完成验证", "异常访问", "操作过于频繁", "风险提示", "环境异常",
 ]
-SUCCESS_KEYWORDS = ["签到成功", "领取成功", "已领取", "积分+10", "签到完成", "已签到"]
+SUCCESS_KEYWORDS = ["签到成功", "领取成功", "已领取", "积分+10", "签到完成",
+                    "已签到", "今日已签", "明天再来", "明日再来", "已签"]
 
 # 热门话题任务要发 3 条，多准备几条避免重复
 CHAT_PROMPTS = [
@@ -643,6 +644,30 @@ class Runner:
 
         btn_txt = ""
         diag = {}
+        # 等按钮真正就绪：在 DOM 里不算，得有文字或可见尺寸。
+        # 云端实测过「按钮已存在但 innerText 还是空」的竞态——那时读空就判成「未签」，
+        # 于是去点一个还没渲染完的按钮，最后两头落空。
+        waited = 0
+        while waited < 30:
+            try:
+                probe = self.page.locator(btn_sel)
+                if probe.count():
+                    el = probe.first
+                    t = re.sub(r"\s+", " ", el.inner_text() or "").strip()
+                    try:
+                        vis = el.is_visible()
+                    except Exception:
+                        vis = False
+                    if vis and (t or el.bounding_box()):
+                        if t:
+                            break
+            except Exception:
+                pass
+            self.page.wait_for_timeout(500)
+            waited += 1
+        if waited:
+            self.log("signin btn ready after %.1fs" % (waited * 0.5))
+
         try:
             loc = self.page.locator(btn_sel)
             diag["count"] = loc.count()
@@ -708,15 +733,22 @@ class Runner:
         for k, v in st2.items():
             if v is not None:
                 st[k] = v
+        cls = ""
         try:
             loc = self.page.locator(btn_sel)
             if loc.count():
-                st["sign_btn_text"] = re.sub(r"\s+", " ", loc.first.inner_text() or "").strip()
+                el = loc.first
+                st["sign_btn_text"] = re.sub(r"\s+", " ", el.inner_text() or "").strip()
+                # 按钮自带状态类：已签时是 `pc-sign-btn is-signed`。
+                # 这比读文字稳（文字可能还没渲染），比整页关键词准（页面到处都有「已签2天」）。
+                cls = (el.get_attribute("class") or "")
+                st["sign_btn_class"] = cls
         except Exception:
             pass
         flat = self.flat()
         st["signed_today"] = (
-            any(k in (st.get("sign_btn_text") or "") for k in ("已签", "明天再来", "明日再来", "已领"))
+            "is-signed" in cls
+            or any(k in (st.get("sign_btn_text") or "") for k in ("已签", "明天再来", "明日再来", "已领"))
             or any(k in flat for k in SUCCESS_KEYWORDS)
         )
         if not st["signed_today"]:
