@@ -263,11 +263,25 @@ python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --all
 | `null` | 没读到确认标记 | **按失败处理** |
 | `false` | 明确未签 | 按失败处理 |
 
-### 三个最常见的失败原因
+### 签到走接口，不靠页面（v4.0.7 起）
+
+云端活动页经常**整页白屏**：JS 从 `staticplat.cdn.bcebos.com` 拉，机房网络拉不动，Vue 起不来，
+`body.innerText` 是空的。所以签到状态和签到动作都优先走同域接口：
+
+| 动作 | 接口 |
+| --- | --- |
+| 查状态 | `POST /act/v2/kukuai30/homepage?tid=291651792210` → `data.signed_today` |
+| 签到 | `POST /act/v2/kukuai30/signin?tid=291651792210`（`errno=10152` 视为今天已签） |
+
+`tid` 在 `assets/activity.json` 的 `api.sign_tid`，换期时改这里。
+接口通了就完全不打开活动页，省 20 秒也避开白屏；接口失败才回退到点按钮。
+
+### 三个常见的失败原因
 
 1. **活动页没渲染出来**（云端机房 IP 被风控最常见）
    - 症状：`diag.count=0`，页面首屏是首页或空白
    - 排查：看 `outputs/signin-page-*.png`
+   - 现在有接口兜底，这一条基本不会再导致失败
 2. **按钮在 DOM 里但不可见**
    - 症状：`count=1 visible=false`（被弹窗盖住 / 父容器 display:none）
    - 处理：脚本会先 `dismiss_dialogs()`，仍不行就 DOM 点击兜底
