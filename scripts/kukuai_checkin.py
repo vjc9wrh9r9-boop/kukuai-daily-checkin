@@ -49,6 +49,7 @@ import re
 import sys
 import tempfile
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode, parse_qs
@@ -207,6 +208,50 @@ def find_cookie_path(explicit: str) -> Path:
 # --------------------------------------------------------------------------- #
 # 连签状态（跨天持久化）
 # --------------------------------------------------------------------------- #
+
+def read_cookie_meta(cookie_path: Path) -> dict | None:
+    """读 GetCookie 写下的 cookies.meta.json（同目录、同名前缀）。
+
+    刻意不猜：旧版工具不写 meta，这里就返回 None，调用方什么都不说。
+    绝不能因为「读不到」就推断「已过期」——那是把未知当成已知。
+    """
+    p = Path(cookie_path)
+    mp = p.with_name(p.stem + ".meta.json")
+    try:
+        data = json.loads(mp.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+
+def cookie_ttl(meta: dict | None) -> dict | None:
+    """把 meta 变成可展示的有效期结论。
+
+    known=False 表示「本地没有可靠的到期时间」（没有 meta / 会话级 cookie），
+    这时既不说快过期，也不说已过期，只如实标注未知。
+    """
+    if not isinstance(meta, dict):
+        return None
+    exp = meta.get("expires_at")
+    out = {
+        "captured_at": meta.get("captured_at"),
+        "captured_at_text": meta.get("captured_at_iso") or "",
+        "login_host": meta.get("login_host") or "",
+        "expires_at": exp,
+        "expires_name": meta.get("expires_name") or "",
+        "source": "meta",
+    }
+    if not isinstance(exp, (int, float)) or exp <= 0:
+        out.update(known=False, expired=None, remain_days=None,
+                   note="会话级 Cookie 或未记录有效期，无法预测何时过期")
+        return out
+    now = time.time()
+    remain = exp - now
+    out.update(known=True, expired=remain <= 0,
+               remain_seconds=int(remain), remain_days=round(remain / 86400, 1),
+               expires_text=datetime.fromtimestamp(exp, CN_TZ).strftime("%Y-%m-%d"))
+    return out
+
 def load_state(path: Path) -> dict:
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -251,6 +296,7 @@ class Runner:
             "url": args.url,
             "base_host": None,
             "logged_in": None,
+            "cookie": None,          # 本地有效期预测（仅提示用，鉴权仍以服务端为准）
             "dry_run": bool(args.dry_run),
             "signed_today": None,
             "streak_days": None,
@@ -596,13 +642,25 @@ class Runner:
         st = self.read_streak_points()
 
         btn_txt = ""
+        diag = {}
         try:
             loc = self.page.locator(btn_sel)
-            if loc.count():
+            diag["count"] = loc.count()
+            if diag["count"]:
                 btn_txt = re.sub(r"\s+", " ", loc.first.inner_text() or "").strip()
-        except Exception:
-            pass
-        self.log("signin page: btn=%r streak=%s" % (btn_txt, st.get("streak")))
+                try:
+                    diag["visible"] = loc.first.is_visible()
+                    diag["box"] = list(loc.first.bounding_box() or {})
+                except Exception as e:
+                    diag["v_err"] = str(e)[:40]
+                diag["html"] = (loc.first.evaluate("e => e.outerHTML") or "")[:180]
+        except Exception as e:
+            diag["err"] = str(e)[:80]
+        diag["url"] = self.page.url[-70:]
+        diag["text"] = re.sub(r"\s+", " ", self.flat())[:180]
+        self.log("signin page: btn=%r streak=%s diag=%s"
+                 % (btn_txt, st.get("streak"), json.dumps(diag, ensure_ascii=False)))
+        self.shot("signin-page")
 
         already = any(k in btn_txt for k in ("已签", "明天再来", "明日再来", "已领"))
         if already:
@@ -635,7 +693,11 @@ class Runner:
                     except Exception:
                         continue
             if not hit:
-                self.result["warnings"].append("未找到签到按钮，页面可能改版，请查看截图")
+                self.result["warnings"].append(
+                    "活动页没点到签到按钮（count=%s visible=%s，页面首屏=%r）"
+                    % (diag.get("count"), diag.get("visible"), (diag.get("text") or "")[:70]))
+                self.result["notes"].append("签到诊断：%s" % json.dumps(diag, ensure_ascii=False)[:400])
+                self.shot("signin-failed")
                 return st
             self.page.wait_for_timeout(3500)
             self.dismiss_dialogs()
@@ -1194,6 +1256,16 @@ class Runner:
                          % (n["day"], n["need"], n.get("reward") or "以页面为准"))
         if r.get("points") is not None:
             lines.append("- 库库积分：%s" % r["points"])
+        ck = r.get("cookie") or {}
+        if ck.get("known"):
+            if ck.get("expired"):
+                lines.append("- 登录态：⚠️ 本地记录显示已于 %s 过期（服务端若仍可用则为误报）" % ck.get("expires_text"))
+            else:
+                lines.append("- 登录态：有效期至 %s（%s 到期，剩 %.1f 天）"
+                             % (ck.get("expires_text"), ck.get("expires_name") or "关键 Cookie",
+                                ck.get("remain_days") or 0))
+        elif ck:
+            lines.append("- 登录态：%s" % (ck.get("note") or "有效期未知"))
 
         if r.get("task_board"):
             lines.append("")
@@ -1275,7 +1347,15 @@ class Runner:
             return self.result
         cookies = load_cookies(cookie_path)
         self.cookies = cookies
+        self.cookie_path = cookie_path
         self.log("loaded %d cookies from %s" % (len(cookies), cookie_path))
+        # 本地有效期只用来「提前提醒 / 解释失败原因」，不参与登录判定
+        ttl = cookie_ttl(read_cookie_meta(cookie_path))
+        self.result["cookie"] = ttl
+        if ttl:
+            self.log("cookie ttl: known=%s remain_days=%s expires=%s host=%s"
+                     % (ttl.get("known"), ttl.get("remain_days"),
+                        ttl.get("expires_text"), ttl.get("login_host")))
         if not cookies:
             self.result["stage"] = "cookies"
             self.result["error"] = "Cookie 为空或格式无法识别"
@@ -1318,8 +1398,22 @@ class Runner:
         host = self.resolve_host()
         if not host:
             self.result["stage"] = "login"
-            self.result["error"] = ("两个入口都判定未登录（kuku.baidu.com / www.kukuai.cn）。"
-                                    "Cookie 可能过期，或登录时没落在活动域上，请重新用 GetCookie.exe 抓一次。")
+            ttl = self.result.get("cookie") or {}
+            if ttl.get("expired"):
+                self.result["error"] = (
+                    "Cookie 到期了：本地记录显示 %s 已于 %s 过期（%s），两个入口都不认。"
+                    "请重新用 GetCookie.exe 抓一次。"
+                    % (ttl.get("expires_name") or "关键 Cookie", ttl.get("expires_text"),
+                       "已过期 %.0f 天" % abs(ttl.get("remain_days") or 0)))
+            elif ttl.get("known") and ttl.get("remain_days") is not None:
+                self.result["error"] = (
+                    "两个入口都判定未登录（kuku.baidu.com / www.kukuai.cn），"
+                    "但本地记录的有效期还没到（%s 到期，还剩 %.0f 天）——"
+                    "多半是登录时没落在活动域上，或服务端提前失效。请重新用 GetCookie.exe 抓一次。"
+                    % (ttl.get("expires_text"), ttl.get("remain_days")))
+            else:
+                self.result["error"] = ("两个入口都判定未登录（kuku.baidu.com / www.kukuai.cn）。"
+                                        "Cookie 可能过期，或登录时没落在活动域上，请重新用 GetCookie.exe 抓一次。")
             self.result["logged_in"] = False
             try:
                 self.page.goto(HOME_URL, wait_until="domcontentloaded", timeout=45000)
@@ -1332,6 +1426,18 @@ class Runner:
         self.result["base_host"] = host
         self.result["url"] = host + "/app"
         self.log("resolved host: %s" % host)
+
+        # 本地预测 vs 服务端结论不一致时，按服务端走，但把矛盾记下来
+        ttl = self.result.get("cookie") or {}
+        if ttl.get("known"):
+            if ttl.get("expired"):
+                self.result["notes"].append(
+                    "本地记录显示 Cookie 已过期（%s），但服务端仍接受——以服务端为准，建议尽快重抓"
+                    % ttl.get("expires_text"))
+            elif (ttl.get("remain_days") or 99) <= 3:
+                self.result["warnings"].append(
+                    "Cookie 还有约 %.1f 天到期（%s 于 %s 到期），建议这几天抽空用 GetCookie.exe 重抓一次，别等跑失败"
+                    % (ttl["remain_days"], ttl.get("expires_name") or "关键 Cookie", ttl.get("expires_text")))
 
         self.result["stage"] = "navigate"
         if not self.goto_home():
@@ -1449,8 +1555,19 @@ class Runner:
             pass
         self.check_warnings(state_path, st)
         self.shot("final")
-        self.result["stage"] = "done"
-        self.result["ok"] = True
+        signed = st.get("signed_today")
+        if signed is True or self.args.dry_run or self.args.no_signin:
+            # dry-run / --no-signin 本来就没打算签，不能拿这个判失败
+            self.result["stage"] = "done"
+            self.result["ok"] = True
+        else:
+            # 签到是这工具的第一职责。没签成却报 ok=True，就是把「跑完了」当成「做完了」
+            self.result["stage"] = "signin-failed"
+            self.result["ok"] = False
+            self.result["error"] = (
+                "签到未确认成功（signed_today=%s）。任务部分已跑完，但签到没落地，不能算完成。"
+                "排查：① 活动页是否被风控 ② 看 outputs/ 里 signin-*.png ③ 加 --headful 本地复现"
+                % signed)
         self.log("finished signed=%s boards=%s" % (
             st.get("signed_today"),
             {k: len(v) for k, v in (self.boards or {}).items()}))
