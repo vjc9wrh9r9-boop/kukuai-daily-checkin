@@ -58,7 +58,7 @@ COOKIE_HOSTS = ["https://kuku.baidu.com/", "https://baidu.com/", "https://passpo
 REQUIRED_COOKIES = [("BDUSS", "baidu.com"), ("STOKEN", "kuku.baidu.com")]
 
 APP_TITLE = "库库AI Cookie 抓取工具"
-APP_VERSION = "3.8.3"
+APP_VERSION = "3.8.4"
 
 # 默认浏览器拿不到时按顺序退化的候选
 FALLBACK_BROWSERS = [
@@ -359,6 +359,16 @@ def normalize(cookies):
             continue
         seen.add(key)
         item = {"name": name, "value": value, "domain": dom, "path": c.get("path") or "/"}
+        # expires 是「登录态还能撑多久」的唯一本地线索：Chrome 的 session cookie 为 -1，
+        # 持久 cookie 为 Unix 秒。旧版把它丢了，于是只能等脚本跑失败才知道过期。
+        exp = c.get("expires")
+        if isinstance(exp, (int, float)):
+            item["expires"] = int(exp) if exp > 0 else -1
+            if exp <= 0:
+                item["session"] = True
+        elif c.get("session"):
+            item["expires"] = -1
+            item["session"] = True
         if c.get("httpOnly"):
             item["httpOnly"] = True
         if c.get("secure"):
@@ -580,7 +590,39 @@ def pick_needed(cookies):
     return picked, True
 
 
-def save_cookies(cookies, out_path, keep_all=False):
+def cookie_meta(data, host=""):
+    """登录态元数据：抓取时间 + 关键 cookie 的到期时间。
+
+    只统计 REQUIRED_COOKIES（BDUSS / STOKEN）——别的 cookie 过期浏览器会自己重发，
+    不影响登录态；只有这两项的寿命才是真寿命。
+    expires <= 0 是 session cookie（关掉浏览器就没），算「寿命未知」，
+    绝不能当成「已过期」。
+    """
+    now = int(time.time())
+    names = [n for n, _ in REQUIRED_COOKIES]
+    required = {}
+    for c in data:
+        name = c.get("name")
+        exp = c.get("expires")
+        if name not in names or not isinstance(exp, int):
+            continue
+        required[name] = {"domain": c.get("domain") or "", "expires": exp, "session": exp <= 0}
+
+    candidates = sorted((v["expires"], k) for k, v in required.items() if v["expires"] > now)
+    expires_at, expires_name = (candidates[0] if candidates else (None, ""))
+    return {
+        "version": 1,
+        "captured_at": now,
+        "captured_at_iso": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)),
+        "login_host": host or "",
+        "count": len(data),
+        "required": required,
+        "expires_at": expires_at,
+        "expires_name": expires_name,
+    }
+
+
+def save_cookies(cookies, out_path, keep_all=False, host=""):
     if keep_all:
         data, minimal = normalize(cookies), False
     else:
@@ -591,7 +633,25 @@ def save_cookies(cookies, out_path, keep_all=False):
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    # 另存一份 meta：脚本靠它提前预警「还有几天过期」，不用等跑失败
+    meta = cookie_meta(data, host)
+    try:
+        path.with_name(path.stem + ".meta.json").write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        pass
     return data, payload, minimal
+
+
+def ttl_text(meta):
+    """把 meta 转成一句人话，给状态条用。"""
+    exp = meta.get("expires_at")
+    if isinstance(exp, int) and exp > 0:
+        days = max(0, int((exp - time.time()) / 86400))
+        return " · 有效期至 %s（约 %d 天）" % (time.strftime("%Y-%m-%d", time.localtime(exp)), days)
+    if meta.get("required"):
+        return " · 会话级 Cookie（关闭浏览器即失效）"
+    return ""
 
 
 def _cleanup(procs):
@@ -984,10 +1044,10 @@ class CookieApp:
                             tried_other = True   # 只切一次域，之后不再来回跳
                     if state is True:
                         again = read_cookies(self.port) or cookies
-                        data, payload, minimal = save_cookies(again, self.out_path)
-                        if "kukuai.cn" in origin:
-                            # 这套登录只对 www.kukuai.cn 生效，脚本会自动用它
-                            data, payload, minimal = save_cookies(again, self.out_path, keep_all=True)
+                        # kukuai.cn 登录的会话只有全套 cookie 才好用，一次写清，别写两遍
+                        keep_all = "kukuai.cn" in origin
+                        data, payload, minimal = save_cookies(again, self.out_path,
+                                                              keep_all=keep_all, host=origin)
                         if not data:
                             self._ui(self._fail, "读到了 Cookie 但没有 BDUSS，可能还没登录完成，重试一次。")
                             return
@@ -998,6 +1058,7 @@ class CookieApp:
                             note = "（登录域 %s）" % domain_label
                         else:
                             note = "（登录域 %s，保留全部 %d 条；脚本会自动用这个域）" % (domain_label, len(data))
+                        note += ttl_text(cookie_meta(data, origin))
                         self._ui(self._success, len(data), note)
                         return
                     if state is False:
