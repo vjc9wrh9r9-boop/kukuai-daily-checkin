@@ -631,13 +631,25 @@ class Runner:
             self.log("home cta skipped: %s" % str(e)[:60])
 
         url = (self.base or "https://kuku.baidu.com") + ACTIVITY_PATH
-        try:
-            self.page.goto(url, wait_until="domcontentloaded", timeout=60000)
-        except Exception as e:
-            self.log("open activity page failed: %s" % str(e)[:90])
-            self.result["warnings"].append("活动页打不开（%s），签到可能未完成" % str(e)[:60])
+        # 活动页静态资源多，云端实测过 domcontentloaded 60 秒超时。
+        # 改成 commit（导航一提交就返回）+ 后面靠按钮轮询等渲染，两次机会。
+        opened = False
+        last_err = ""
+        for attempt, wait_mode in enumerate(("commit", "domcontentloaded")):
+            try:
+                self.page.goto(url, wait_until=wait_mode, timeout=45000)
+                opened = True
+                self.log("activity page opened (wait=%s, attempt=%d)" % (wait_mode, attempt + 1))
+                break
+            except Exception as e:
+                last_err = str(e)[:110]
+                self.log("open activity page attempt %d (%s) failed: %s"
+                         % (attempt + 1, wait_mode, last_err))
+        if not opened:
+            self.result["warnings"].append("活动页打不开（%s），签到未完成" % last_err[:80])
+            self.shot("signin-failed")
             return {}
-        self.page.wait_for_timeout(4500)
+        self.page.wait_for_timeout(1500)
 
         btn_sel = self.sel.get("signin_btn") or "button.pc-sign-btn"
         st = self.read_streak_points()
@@ -648,7 +660,7 @@ class Runner:
         # 云端实测过「按钮已存在但 innerText 还是空」的竞态——那时读空就判成「未签」，
         # 于是去点一个还没渲染完的按钮，最后两头落空。
         waited = 0
-        while waited < 30:
+        while waited < 50:
             try:
                 probe = self.page.locator(btn_sel)
                 if probe.count():
