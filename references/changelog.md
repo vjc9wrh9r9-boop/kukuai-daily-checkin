@@ -1,5 +1,23 @@
 # 版本变更记录
 
+## v4.0.7 — 2026-10-28（签到失败不再报 ok=True + 诊断）
+
+**云端实况**：GitHub Actions 跑完 `ok=True stage=done`，但 `signed_today=null`，
+warnings 里躺着「未找到签到按钮」。也就是**任务都做了、签到没签上，却报了成功**——
+和 v4 修的老毛病一模一样，只是这次发生在签到这条线上。
+
+| 改动 | 说明 |
+| --- | --- |
+| `ok` 语义 | 签到不是 `true` 就 `ok=False`、`stage=signin-failed`、`error` 写明原因。`--dry-run` / `--no-signin` 不算失败 |
+| 诊断 | 签到页记录 `count / visible / box / html` + 页面首屏文本，写进日志与 `notes` |
+| 截图 | 新增 `signin-page-*.png`、`signin-failed-*.png`，失败必有图 |
+| workflow | 跑完校验 `ok`，为 false 直接让 job 失败，不再靠人看日志 |
+| 模板仓库 | 未配 secret 时**跳过并给三步配置指引**（写进 Step Summary），不再每天报错开 issue |
+
+**顺带**：`get_cookie.py` 3.8.4 保留 `expires` 并写 `cookies.meta.json`；
+脚本读它算「还剩几天过期」，快到期提前 3 天提醒——借鉴 WorkBuddy Manager 的分层做法
+（本地推算只做提示，鉴权仍以服务端 `errno` 为准）。
+
 ## v4.0.6 — 2026-10-28（补免责声明）
 
 GitHub 仓库与本包此前只有一句「合规提示」，不足以覆盖分发场景（会被转卖、会被当官方工具）。
