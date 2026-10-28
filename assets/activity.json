@@ -41,7 +41,9 @@
     "complete": "/api/genflowpro/activity/taskcomplete",
     "app_id": 123971023,
     "clienttype": 400,
-    "version": "1.6.32"
+    "version": "1.6.32",
+    "sign_base": "/act/v2/kukuai30",
+    "sign_tid": "291651792210"
   },
   "channels": [
     {
