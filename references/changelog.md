@@ -15,6 +15,7 @@ warnings 里躺着「未找到签到按钮」。也就是**任务都做了、签
 | 状态类判据 | 已签时按钮是 `pc-sign-btn is-signed`，优先认这个 class，其次认文字，最后才看整页关键词 |
 | 关键词补全 | 页面实际写「今日已签」「已签 2 天」，原来只有「已签到」，匹配不上 → 补「今日已签 / 已签 / 明天再来」 |
 | 导航策略 | 活动页静态资源重，云端实测 `domcontentloaded` 60 秒超时 → 改 `wait_until="commit"`（导航一提交就返回），再靠按钮轮询等渲染；失败自动退回 `domcontentloaded` 重试一次 |
+| **接口签到（关键）** | 云端活动页会**整页白屏**：JS 从 `staticplat.cdn.bcebos.com` 拉，机房网络拉不动，Vue 起不来。但同域接口一直通 → 改用 `POST /act/v2/kukuai30/homepage?tid=…` 查 `signed_today`，`POST /act/v2/kukuai30/signin` 签到。页面点击退为兜底，**页面读完不出来的最后再用接口确认一次** |
 | workflow | 跑完校验 `ok`，为 false 直接让 job 失败，不再靠人看日志 |
 | 模板仓库 | 未配 secret 时**跳过并给三步配置指引**（写进 Step Summary），不再每天报错开 issue |
 
