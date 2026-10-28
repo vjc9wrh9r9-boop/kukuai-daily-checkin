@@ -613,8 +613,80 @@ class Runner:
                 pass
         return st
 
+    def sign_api(self, action: str) -> dict:
+        """直接调活动接口（homepage / signin），不依赖活动页渲染。
+
+        云端实测：活动页会白屏——JS 从 staticplat.cdn.bcebos.com 拉，
+        机房网络拉不动，Vue 起不来，body 是空的。但同域接口一直通。
+        所以状态查询与签到动作都优先走这里，页面点击退为兜底。
+        """
+        base = self.api.get("sign_base") or "/act/v2/kukuai30"
+        tid = str(self.api.get("sign_tid") or "")
+        if not tid:
+            return {"errno": -1, "errmsg": "配置缺少 api.sign_tid"}
+        url = "%s/%s?tid=%s" % (base, action, tid)
+        try:
+            res = self.page.evaluate("""async ({url}) => {
+                try {
+                    const r = await fetch(url, {method:'POST', credentials:'include',
+                        headers:{'Content-Type':'application/json'}, body:'{}'});
+                    const t = await r.text();
+                    try { return Object.assign({http:r.status}, JSON.parse(t)); }
+                    catch(e) { return {http:r.status, errno:-999, errmsg:'non-json', raw:t.slice(0,160)}; }
+                } catch(e) { return {errno:-998, errmsg:String(e).slice(0,80)}; }
+            }""", {"url": url}) or {}
+        except Exception as e:
+            return {"errno": -997, "errmsg": str(e)[:80]}
+        return res
+
+    def sign_state_api(self) -> dict:
+        """接口版签到状态：{signed_today, streak, raw}。失败返回 {}。"""
+        res = self.sign_api("homepage")
+        if res.get("errno") != 0:
+            self.log("sign_state api failed: errno=%s %s" % (res.get("errno"), str(res.get("errmsg"))[:60]))
+            return {}
+        data = res.get("data") or {}
+        if not isinstance(data, dict):
+            return {}
+        return {
+            "signed_today": data.get("signed_today"),
+            "streak": data.get("continuous_days"),
+            "total_days": data.get("total_days"),
+            "next_reward_days": data.get("next_reward_days"),
+        }
+
     def do_signin(self) -> dict:
         self.result["stage"] = "signin"
+
+        # ---- 0) 接口优先：先问「今天签没签」，不依赖页面渲染 ----
+        api_st = self.sign_state_api()
+        if api_st.get("signed_today") is True:
+            self.log("signin via api: already signed (streak=%s)" % api_st.get("streak"))
+            self.result["actions"].append({"signin": "api_already"})
+            self.page.wait_for_timeout(300)
+            self.shot("signed")
+            return {"signed_today": True, "streak": api_st.get("streak"),
+                    "points": None, "lottery": None, "source": "api"}
+        if api_st.get("signed_today") is False:
+            res = self.sign_api("signin")
+            errno = res.get("errno")
+            self.log("signin api: errno=%s %s" % (errno, str(res.get("errmsg"))[:60]))
+            if errno == 0:
+                self.result["actions"].append({"signin": "api_ok"})
+            elif errno == 10152:
+                # 重复签到 = 今天已经签过，不是失败
+                self.result["actions"].append({"signin": "api_already(10152)"})
+            else:
+                self.result["notes"].append("接口签到返回 errno=%s（将回退到页面点击）" % errno)
+            after = self.sign_state_api()
+            if after.get("signed_today") is True:
+                self.log("signin confirmed by api after post")
+                self.result["actions"].append({"signin": "api_confirmed"})
+                self.shot("signed")
+                return {"signed_today": True, "streak": after.get("streak"),
+                        "points": None, "lottery": None, "source": "api"}
+        else:
+            self.log("sign_state api unavailable, fallback to page")
 
         # 先在首页签到卡上点一次（卡片偶尔不渲染，失败不影响后面的活动页直点）
         try:
@@ -763,6 +835,16 @@ class Runner:
             or any(k in (st.get("sign_btn_text") or "") for k in ("已签", "明天再来", "明日再来", "已领"))
             or any(k in flat for k in SUCCESS_KEYWORDS)
         )
+        # 页面读不到 ≠ 没签：白屏/渲染慢时按钮可能永远不出现。
+        # 最后问一次接口，接口说签了就是签了（页面只是显示层）。
+        if st.get("signed_today") is not True:
+            confirm = self.sign_state_api()
+            if confirm.get("signed_today") is True:
+                st["signed_today"] = True
+                st["streak"] = st.get("streak") or confirm.get("streak")
+                self.result["actions"].append({"signin": "api_confirmed_after_page"})
+                self.log("page looked unsigned, api says signed -> trust api")
+
         if not st["signed_today"]:
             self.result["warnings"].append(
                 "点击签到后未检测到「今日已签」（按钮=%r），请以截图复核" % (st.get("sign_btn_text") or ""))
