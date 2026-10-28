@@ -1,7 +1,7 @@
 ---
 name: kukuai-checkin-tasks
 display_name: "库库AI 签到 + 每日任务"
-version: "4.0.6"
+version: "4.0.7"
 updated: "2026-10-28"
 activity: "每日签到得网盘SVIP月卡 · 做任务抽好礼 赢苹果笔记本（2026-10-21 ~ 2026-12-04）"
 description: "库库AI（kuku.baidu.com / kukuai.cn，百度 AI 办公智能体）每日签到与每日任务的自动化。适配 2026-10-21 起的新一期活动「每日签到得网盘SVIP月卡」，连签 3/7/15/30 天解锁网盘 SVIP，做任务攒积分与抽奖次数。**任务进度分「网页端」和「PC 客户端」两套独立记录，脚本两端都做、都核验**。当用户提出「帮我签到」「自动签到」「领一下库库AI的每日积分」「完成库库AI每日任务」「今天签到成功没 / 连签几天了」等诉求时使用。本 Skill 自带 Cookie 抓取工具 tools/GetCookie.exe（双击即用），不要让用户手动按 F12。"
@@ -250,6 +250,37 @@ python scripts/kukuai_checkin.py --cookies ~/.kukuai/cookies.json --all
 
 说明已经建过一条（多半是重复建了）。**先删掉多余的那条，保留一条**，
 不要点「开通会员」，也不要再尝试新建。免费额度通常就是 1 条，够用。
+
+## 签到没成，怎么查（云端最容易踩）
+
+`ok=True` 只代表**流程跑完了**，不代表**签到签上了**。v4.0.7 起：签不上就是 `ok=False` + `stage=signin-failed`。
+
+签到结果只看一个字段：`signed_today`
+
+| 值 | 含义 | 该怎么办 |
+| --- | --- | --- |
+| `true` | 已签（本次签的或本来就已签） | 完事 |
+| `null` | 没读到确认标记 | **按失败处理** |
+| `false` | 明确未签 | 按失败处理 |
+
+### 三个最常见的失败原因
+
+1. **活动页没渲染出来**（云端机房 IP 被风控最常见）
+   - 症状：`diag.count=0`，页面首屏是首页或空白
+   - 排查：看 `outputs/signin-page-*.png`
+2. **按钮在 DOM 里但不可见**
+   - 症状：`count=1 visible=false`（被弹窗盖住 / 父容器 display:none）
+   - 处理：脚本会先 `dismiss_dialogs()`，仍不行就 DOM 点击兜底
+3. **按钮是图片、没有文字**
+   - 症状：`btn=''` 而 `count=1`
+   - 处理：v4.0.7 起空文字也照点，点完用页面关键词 + 截图双重确认
+
+### 你会拿到的诊断
+
+失败时 `notes` 里有一条 `签到诊断：{...}`，含 `count / visible / box / url / text / html` 片段；
+同时 `outputs/` 下会多两张图：`signin-page-*.png`（点之前）、`signin-failed-*.png`（点之后）。
+
+**不要凭猜测改代码**——先看这两个字段再动手。
 
 ## 合规与免责（先读这段，再动手）
 
